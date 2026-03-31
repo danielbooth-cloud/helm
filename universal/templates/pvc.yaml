@@ -1,0 +1,19 @@
+{{- range $key, $value := .Values.persistence }}
+{{- if and $value.create (not (and (eq $.Values.applicationType "statefulset") $value.useVolumeClaimTemplate)) -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "universal.name" $ }}-{{ $key }}-pvc
+  namespace: {{ $.Release.Namespace }}
+spec:
+  accessModes:
+    - {{ $value.accessMode }}
+  {{- if $value.storageClass }}
+  storageClassName: {{ $value.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $value.size }}
+---
+{{- end }}
+{{- end }}

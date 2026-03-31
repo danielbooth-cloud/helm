@@ -1,0 +1,20 @@
+{{- if .Values.clusterRoleBinding.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Values.clusterRoleBinding.name | default (printf "%s-sa" (include "universal.name" .)) }}
+  labels:
+    {{- include "universal.labels" . | nindent 4 }}
+  {{- with .Values.clusterRoleBinding.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+roleRef:
+  {{- with .Values.clusterRoleBinding.roleRef }}
+    {{- toYaml . | nindent 2 }}
+  {{- end }}
+subjects:
+  {{- with .Values.clusterRoleBinding.subjects }}
+    {{- toYaml . | nindent 2 }}
+  {{- end }}
+{{- end }}

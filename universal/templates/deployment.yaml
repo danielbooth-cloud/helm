@@ -1,0 +1,185 @@
+{{- if or (eq .Values.applicationType "deployment") (eq .Values.applicationType "deployment-ns") }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "universal.fullname" . | default (printf "%s-dp" (include "universal.name" .)) }}
+  labels:
+    {{- include "universal.labels" . | nindent 4 }}
+  {{- if .Values.reloader.enabled }}
+  annotations:
+    configmap.reloader.stakater.com/reload: "{{ include "universal.name" . }}-config"
+  {{- end }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "universal.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "universal.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "universal.serviceAccountName" . }}
+      serviceAccount: {{ include "universal.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.runtimeClassName }}
+      runtimeClassName: {{ .Values.runtimeClassName }}
+      {{- end }}
+      {{- if .Values.initContainers }}
+      initContainers:
+        - name: "{{ include "universal.name" . }}-init"
+          image: "{{ .Values.initContainers.image.repository }}:{{ .Values.initContainers.image.tag }}"
+          imagePullPolicy: {{ .Values.initContainers.image.pullPolicy | default .Values.image.pullPolicy }}
+          {{- with .Values.initContainers.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+          {{- if .Values.persistence.data.enabled }}
+            - name: {{ include "universal.name" . }}-data
+              mountPath: {{ .Values.persistence.data.mountPath }}
+          {{- end }}
+          {{- if .Values.persistence.logs.enabled }}
+            - name: {{ include "universal.name" . }}-logs
+              mountPath:  {{ .Values.persistence.logs.mountPath }}
+          {{- end }}
+      {{- end }}
+      containers:
+        - name: {{ include "universal.name" . }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.image.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.image.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          {{- end }}
+          {{- if .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+          {{- if .Values.config }}
+            - name: {{ include "universal.name" . }}-config
+              mountPath: {{ .Values.configMountPath }}
+          {{- end }}
+          {{- if .Values.persistence.data.enabled }}
+            - name: {{ include "universal.name" . }}-data
+              mountPath: {{ .Values.persistence.data.mountPath }}
+          {{- end }}
+          {{- if .Values.persistence.logs.enabled }}
+            - name: {{ include "universal.name" . }}-logs
+              mountPath:  {{ .Values.persistence.logs.mountPath }}
+              {{- if .Values.persistence.logs.subPath }}
+              subPath: {{ .Values.persistence.logs.subPath | default (include "universal.name" .) }}
+              {{- end }}
+          {{- end }}
+          {{- if .Values.secretVolumes }}
+          {{- range $key, $value := .Values.secretVolumes }}
+            - name: {{ $value.name }}
+              mountPath: {{ $value.mountPath }}
+          {{- end }}
+          {{- end }}
+          {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.envs }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.ports }}
+          ports:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        {{- if .Values.config }}
+        - name: {{ include "universal.name" . }}-config
+          configMap:
+            name: "{{ include "universal.fullname" . }}-config"
+        {{- end }}
+        {{- if .Values.setupScripts }}
+        - name: {{ include "universal.name" . }}-setup-scripts
+          configMap:
+            name: {{ include "universal.name" . }}-setup-scripts
+            defaultMode: 0777
+        {{- end }}
+        {{- if .Values.persistence.data.enabled }}
+        - name: {{ include "universal.name" . }}-data
+          persistentVolumeClaim:
+            {{- if not .Values.persistence.data.create }}
+            claimName: {{ .Values.persistence.data.claimName }}
+            {{- else }}
+            claimName: "{{ include "universal.name" . }}-data-pvc"
+            {{- end }}
+        {{- end }}
+        {{- if .Values.persistence.logs.enabled }}
+        - name: {{ include "universal.name" . }}-logs
+          persistentVolumeClaim:
+            {{- if not .Values.persistence.logs.create }}
+            claimName: {{ .Values.persistence.logs.claimName }}
+            {{- else }}
+            claimName: "{{ include "universal.name" . }}-logs-pvc"
+            {{- end }}
+        {{- end }}
+        {{- if .Values.secretVolumes }}
+        {{- range $key, $value := .Values.secretVolumes }}
+        - name: {{ $value.name }}
+          secret:
+            secretName: {{ $value.secretName }}
+        {{- if $value.items }}
+            items:
+          {{- range $key, $item := $value.items }}
+            - key: {{ $item.key }}
+              path: {{ $item.path }}
+          {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

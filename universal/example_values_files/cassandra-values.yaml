@@ -1,0 +1,42 @@
+applicationType: statefulset
+
+replicaCount: 1
+
+
+# This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
+image:
+  repository: cassandra
+  # This sets the pull policy for images.
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: latest
+  # The command to run in the container
+  command: []
+  # The args to pass to the command
+  args: []
+
+# This is for the secretes for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+imagePullSecrets: []
+# This is to override the chart name.
+nameOverride: ""
+fullnameOverride: "cassandra"
+
+# This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
+service:
+  # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
+  type: ClusterIP
+  # This sets the ports more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports
+  ports:
+    cql:
+      protocol: TCP
+      port: 9042
+      targetPort: 9042
+    metrics:
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+    http: null
+  annotations: []
+  loadBalancerIP: ""
+  loadBalancerSourceRanges: []
+

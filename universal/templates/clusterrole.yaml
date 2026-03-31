@@ -1,0 +1,19 @@
+{{- range $i, $value := .Values.clusterRole }}
+{{- with $ -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $value.name | default (printf "%s-sa" (include "universal.name" .)) }}
+  labels:
+    {{- include "universal.labels" . | nindent 4 }}
+  {{- with $value.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+rules:
+  {{- with $value.rules }}
+    {{- toYaml . | nindent 2 }}
+  {{- end }}
+{{- end }}
+---
+{{- end }}
