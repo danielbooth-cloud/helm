@@ -1,0 +1,1033 @@
+profilePrefix: bootstrap
+managementCluster:
+  namespace: mgmt
+  name: mgmt
+  # The SveltosCluster's registration cluster label, which the profiles select on.
+  cluster: ""
+sharedClusterConfig: {}
+clusterConfig: {}
+managementResources: []
+credentials: {}
+deploymentRevision: ""
+
+clusterMesh:
+  # IPs peers dial (plus loopback); the apiserver cert carries them as SANs.
+  apiserverIpAddresses:
+    - 127.0.0.1
+    - "::1"
+  issuerName: cilium-mesh
+  caSecretName: cilium-mesh-ca
+  caItem: cilium-mesh-ca
+  caCertificateField: certificate
+  caPrivateKeyField: private-key
+  certificateDuration: 2160h
+  certificateRenewBefore: 360h
+  hubbleTlsSecretPrefix: hubble-mesh
+
+# Workload clusters register themselves here from their own Terraform stacks; the
+# ClusterConfig ConfigMaps the profiles reference live here too (the registrar's
+# release namespace).
+registrationNamespace: clusters
+
+
+namespaces:
+  certManager: cert-manager
+  onepassword: onepassword
+  externalDns: external-dns
+  externalSecrets: external-secrets
+  reloader: reloader
+  kro: kro-system
+  monitoring: monitoring
+  tailscale: tailscale-operator
+  ceph: ceph-system
+  gateway: gateway
+  kubeSystem: kube-system
+
+namespaceLabels:
+  monitoring:
+    gateway-access: "true"
+  tailscale:
+    pod-security.kubernetes.io/enforce: privileged
+  # Node plugins run privileged on the host network.
+  ceph:
+    pod-security.kubernetes.io/enforce: privileged
+
+namespacePolicyPreamble: |
+  {{- $clusterConfig := getResource "ClusterConfig" -}}
+  {{- if ne (index .Cluster.metadata.labels "bootstrap.projectsveltos.io/cluster") $clusterConfig.data.clusterName -}}
+  {{- fail "Registration cluster label and clusterName must match" -}}
+  {{- end }}
+
+settings:
+  secretStoreName: onepassword
+  connectTokenSecretName: onepassword-connect-token
+  connectCredentialsSecretName: op-credentials
+  # ClusterConfig supplies the hosts and port; this is the alias's name.
+  s3ServiceName: s3
+  issuerName: zerossl-issuer
+  eabSecretName: zerossl-eab-secret
+  acmeAccountSecretName: zerossl-production
+  certificateCloudflareSecretName: cloudflare-api-token-secret
+  dnsCloudflareSecretName: external-dns-cloudflare
+  cloudflareSecretKey: api-token
+  cloudflareSecretItem: cloudflare
+  cloudflareSecretField: account-api-token
+  # Cilium north-south Gateway that GatewayRoutes attach to.
+  gatewayName: gateway
+  gatewayNamespace: ""
+
+versions:
+  raw: 2.0.2
+  reloader: 2.2.17
+  externalSecrets: 2.10.0
+  tailscale: 1.102.4
+  prometheus: 29.36.1
+  certManager: v1.21.2
+  k8sSecrets: 2.0.0
+  certManagerIssuers: 0.3.0
+  externalDns: 1.22.0
+  kro: 0.9.4
+  metricsServer: 3.13.1
+  kubeletCsrApprover: 1.2.15
+  cephCsi: 3.18.1
+  onePasswordConnect: 2.4.3
+
+# These are Sveltos value documents, deliberately emitted without Helm tpl.
+applicationValues:
+  mimir-gateway: |
+    resources:
+      # ClusterMesh global Service shim: no selector, no local endpoints. Cilium adds the
+      # management cluster's, so writes go to central Mimir over the OVN peer.
+      - apiVersion: v1
+        kind: Service
+        metadata:
+          name: {{ (getResource "ClusterConfig").data.mimirGatewayService | quote }}
+          namespace: {{ (getResource "ClusterConfig").data.mimirNamespace | quote }}
+          annotations:
+            service.cilium.io/global: "true"
+            service.cilium.io/shared: "false"
+        spec:
+          ports:
+            - name: http-metrics
+              port: {{ (getResource "ClusterConfig").data.mimirGatewayPort }}
+              targetPort: {{ (getResource "ClusterConfig").data.mimirGatewayPort }}
+              protocol: TCP
+  s3-endpoint: |
+    resources:
+      - apiVersion: v1
+        kind: Service
+        metadata:
+          name: {{ (getResource "BootstrapSettings").data.s3ServiceName | quote }}
+          namespace: {{ (getResource "BootstrapSettings").data.cephNamespace | quote }}
+        spec:
+          ports:
+            - name: http
+              port: {{ (getResource "ClusterConfig").data.s3Port }}
+              targetPort: {{ (getResource "ClusterConfig").data.s3Port }}
+              protocol: TCP
+      - apiVersion: discovery.k8s.io/v1
+        kind: EndpointSlice
+        metadata:
+          name: {{ (getResource "BootstrapSettings").data.s3ServiceName | quote }}
+          namespace: {{ (getResource "BootstrapSettings").data.cephNamespace | quote }}
+          labels:
+            kubernetes.io/service-name: {{ (getResource "BootstrapSettings").data.s3ServiceName | quote }}
+        addressType: IPv4
+        ports:
+          - name: http
+            port: {{ (getResource "ClusterConfig").data.s3Port }}
+            protocol: TCP
+        endpoints:
+          {{- range $host := splitList "," (getResource "ClusterConfig").data.s3Hosts }}
+          - addresses:
+              - {{ $host | trim | quote }}
+          {{- end }}
+  onepassword-connect: |
+    connect:
+      applicationName: onepassword-connect
+      replicas: 1
+      api:
+        httpPort: 8080
+      credentialsName: {{ (getResource "BootstrapSettings").data.connectCredentialsSecretName | quote }}
+      # Secret data is already base64, which is what the chart expects here.
+      credentials_base64: {{ index (getResource "BootstrapCredentials").data "op-connect-credentials" | quote }}
+      serviceAnnotations:
+        # Global Service: every cluster advertises its replica, so ESO keeps working
+        # when the local one is down and reaches a peer's over the OVN mesh.
+        service.cilium.io/global: "true"
+  hubble-relay: |
+    resources:
+      # The central UI on the management cluster reaches each cluster's relay over the
+      # OVN peer, so no tailnet proxy is involved.
+      - apiVersion: v1
+        kind: Service
+        metadata:
+          name: hubble-relay-mesh
+          namespace: {{ (getResource "BootstrapSettings").data.kubeSystemNamespace | quote }}
+        spec:
+          type: NodePort
+          selector:
+            k8s-app: hubble-relay
+          ports:
+            - name: grpc
+              port: 80
+              targetPort: grpc
+              nodePort: 32424
+  cilium-mesh-certificates: |
+    {{- $config := (getResource "ClusterConfig").data -}}
+    {{- $settings := (getResource "BootstrapSettings").data -}}
+    {{- if empty $config.clusterName -}}
+    {{- fail "Cluster Mesh requires clusterName" -}}
+    {{- end -}}
+    resources:
+      - apiVersion: external-secrets.io/v1
+        kind: ExternalSecret
+        metadata:
+          name: {{ $settings.clusterMeshCaSecretName | quote }}
+          namespace: {{ $settings.certificateNamespace | quote }}
+        spec:
+          refreshInterval: 1h
+          secretStoreRef:
+            kind: ClusterSecretStore
+            name: {{ $settings.secretStoreName | quote }}
+          target:
+            name: {{ $settings.clusterMeshCaSecretName | quote }}
+            creationPolicy: Owner
+            template:
+              type: kubernetes.io/tls
+          data:
+            - secretKey: tls.crt
+              remoteRef:
+                key: {{ $settings.clusterMeshCaItem | quote }}
+                property: {{ $settings.clusterMeshCaCertificateField | quote }}
+            - secretKey: tls.key
+              remoteRef:
+                key: {{ $settings.clusterMeshCaItem | quote }}
+                property: {{ $settings.clusterMeshCaPrivateKeyField | quote }}
+      - apiVersion: cert-manager.io/v1
+        kind: ClusterIssuer
+        metadata:
+          name: {{ $settings.clusterMeshIssuerName | quote }}
+        spec:
+          ca:
+            secretName: {{ $settings.clusterMeshCaSecretName | quote }}
+      {{- range $role := list "server" "admin" "remote" "local" }}
+      - apiVersion: cert-manager.io/v1
+        kind: Certificate
+        metadata:
+          name: clustermesh-apiserver-{{ $role }}-cert
+          namespace: {{ $settings.kubeSystemNamespace | quote }}
+          labels:
+            bootstrap.projectsveltos.io/cilium-certificate: "true"
+        spec:
+          secretName: clustermesh-apiserver-{{ $role }}-cert
+          issuerRef:
+            group: cert-manager.io
+            kind: ClusterIssuer
+            name: {{ $settings.clusterMeshIssuerName | quote }}
+          {{- if eq $role "server" }}
+          commonName: {{ printf "clustermesh-apiserver.%s.svc" $settings.kubeSystemNamespace | quote }}
+          dnsNames:
+            - {{ printf "clustermesh-apiserver.%s.svc" $settings.kubeSystemNamespace | quote }}
+            - "*.mesh.cilium.io"
+          ipAddresses: {{ $settings.clusterMeshApiserverIpAddresses }}
+          usages:
+            - digital signature
+            - server auth
+          {{- else }}
+          commonName: {{ printf "%s-%s" $role $config.clusterName | quote }}
+          usages:
+            - digital signature
+            - client auth
+          {{- end }}
+          duration: {{ $settings.clusterMeshCertificateDuration | quote }}
+          renewBefore: {{ $settings.clusterMeshCertificateRenewBefore | quote }}
+          privateKey:
+            algorithm: ECDSA
+            size: 256
+            rotationPolicy: Always
+      {{- end }}
+      {{- $hubblePrefix := default $settings.hubbleTlsSecretPrefix (get $config "hubbleTlsSecretPrefix") }}
+      {{- range $role := list "server" "relay-client" }}
+      {{- $cn := "*.hubble-relay.cilium.io" }}
+      {{- if eq $role "server" }}
+      {{- $cn = printf "*.%s.hubble-grpc.cilium.io" (replace "." "-" $config.clusterName) }}
+      {{- end }}
+      - apiVersion: cert-manager.io/v1
+        kind: Certificate
+        metadata:
+          name: {{ printf "%s-%s-certs" $hubblePrefix $role | quote }}
+          namespace: {{ $settings.kubeSystemNamespace | quote }}
+          labels:
+            bootstrap.projectsveltos.io/cilium-certificate: "true"
+        spec:
+          secretName: {{ printf "%s-%s-certs" $hubblePrefix $role | quote }}
+          issuerRef:
+            group: cert-manager.io
+            kind: ClusterIssuer
+            name: {{ $settings.clusterMeshIssuerName | quote }}
+          commonName: {{ $cn | quote }}
+          dnsNames:
+            - {{ $cn | quote }}
+          usages:
+            - digital signature
+            - client auth
+            {{- if eq $role "server" }}
+            - server auth
+            {{- end }}
+          duration: {{ $settings.clusterMeshCertificateDuration | quote }}
+          renewBefore: {{ $settings.clusterMeshCertificateRenewBefore | quote }}
+          privateKey:
+            algorithm: ECDSA
+            size: 256
+            rotationPolicy: Always
+      {{- end }}
+  ceph-csi-cephfs: |
+    # Both Ceph CSI charts default to the same ConfigMap names; distinct names let them share a namespace.
+    configMapName: ceph-csi-cephfs-config
+    cephConfConfigMapName: ceph-cephfs-config
+    kmsConfigMapName: ceph-csi-cephfs-encryption-kms-config
+    csiConfig:
+      - clusterID: {{ (getResource "ClusterConfig").data.cephClusterID | quote }}
+        monitors: {{ splitList "," (getResource "ClusterConfig").data.cephMonitors | toJson }}
+        cephFS:
+          subvolumeGroup: csi
+    provisioner:
+      replicaCount: 2
+      httpMetrics:
+        enabled: true
+        service:
+          enabled: true
+          annotations: &ceph-cephfs-metrics
+            prometheus.io/scrape: "true"
+            prometheus.io/path: /metrics
+      {{- range $sidecar, $port := dict "provisioner" 8090 "resizer" 8091 "snapshotter" 8092 "attacher" 8093 }}
+      {{ $sidecar }}:
+        args:
+          httpEndpointPort: {{ $port }}
+      {{- end }}
+    nodeplugin:
+      httpMetrics:
+        enabled: true
+        service:
+          enabled: true
+          annotations: *ceph-cephfs-metrics
+    secret:
+      create: false
+      name: csi-cephfs-secret
+    storageClass:
+      create: true
+      name: cephfs-rwx
+      annotations:
+        storageclass.kubernetes.io/is-default-class: "false"
+      clusterID: {{ (getResource "ClusterConfig").data.cephClusterID | quote }}
+      fsName: k8s-cephfs
+      # Talos kernels have CephFS built in, so the kernel client needs no extra image.
+      mounter: kernel
+      provisionerSecret: csi-cephfs-secret
+      controllerExpandSecret: csi-cephfs-secret
+      controllerPublishSecret: csi-cephfs-secret
+      nodeStageSecret: csi-cephfs-secret
+      # Delete removes the Ceph subvolume or RBD image with its PVC and PV.
+      reclaimPolicy: Delete
+      allowVolumeExpansion: true
+    # Release name equals chart name, so the chart's computed names are these literals.
+    extraDeploy:
+      {{- range $sidecar, $port := dict "provisioner" 8090 "resizer" 8091 "snapshotter" 8092 "attacher" 8093 }}
+      - apiVersion: v1
+        kind: Service
+        metadata:
+          name: ceph-csi-cephfs-provisioner-{{ $sidecar }}-metrics
+          annotations: *ceph-cephfs-metrics
+          labels:
+            csi_sidecar: {{ $sidecar | quote }}
+        spec:
+          ports:
+            - name: {{ $sidecar | quote }}
+              port: {{ $port }}
+              targetPort: {{ $sidecar | quote }}
+          selector:
+            app: ceph-csi-cephfs
+            component: provisioner
+            release: ceph-csi-cephfs
+      {{- end }}
+      # Client key comes from 1Password through ESO; it never enters Helm values.
+      - apiVersion: external-secrets.io/v1
+        kind: ExternalSecret
+        metadata:
+          name: csi-cephfs-secret
+          namespace: {{ (getResource "BootstrapSettings").data.cephNamespace | quote }}
+        spec:
+          refreshInterval: 1h
+          secretStoreRef:
+            kind: ClusterSecretStore
+            name: {{ (getResource "BootstrapSettings").data.secretStoreName | quote }}
+          target:
+            name: csi-cephfs-secret
+            creationPolicy: Owner
+          data:
+            - secretKey: userID
+              remoteRef:
+                key: ceph-csi-cephfs
+                property: username
+            - secretKey: userKey
+              remoteRef:
+                key: ceph-csi-cephfs
+                property: password
+  ceph-csi-rbd: |
+    # Both Ceph CSI charts default to the same ConfigMap names; distinct names let them share a namespace.
+    configMapName: ceph-csi-rbd-config
+    cephConfConfigMapName: ceph-rbd-config
+    kmsConfigMapName: ceph-csi-rbd-encryption-kms-config
+    csiConfig:
+      - clusterID: {{ (getResource "ClusterConfig").data.cephClusterID | quote }}
+        monitors: {{ splitList "," (getResource "ClusterConfig").data.cephMonitors | toJson }}
+    provisioner:
+      replicaCount: 2
+      httpMetrics:
+        enabled: true
+        service:
+          enabled: true
+          annotations: &ceph-rbd-metrics
+            prometheus.io/scrape: "true"
+            prometheus.io/path: /metrics
+      {{- range $sidecar, $port := dict "provisioner" 8090 "resizer" 8091 "snapshotter" 8092 "attacher" 8093 }}
+      {{ $sidecar }}:
+        args:
+          httpEndpointPort: {{ $port }}
+      {{- end }}
+    nodeplugin:
+      httpMetrics:
+        enabled: true
+        service:
+          enabled: true
+          annotations: *ceph-rbd-metrics
+    secret:
+      create: false
+      name: csi-rbd-secret
+    storageClass:
+      create: true
+      name: ceph-rbd
+      annotations:
+        storageclass.kubernetes.io/is-default-class: "true"
+      clusterID: {{ (getResource "ClusterConfig").data.cephClusterID | quote }}
+      pool: k8s-rbd
+      # layering is the feature set the Talos kernel RBD client maps without fallback.
+      imageFeatures: layering
+      fstype: ext4
+      provisionerSecret: csi-rbd-secret
+      controllerExpandSecret: csi-rbd-secret
+      controllerPublishSecret: csi-rbd-secret
+      nodeStageSecret: csi-rbd-secret
+      # Delete removes the Ceph subvolume or RBD image with its PVC and PV.
+      reclaimPolicy: Delete
+      allowVolumeExpansion: true
+    # Release name equals chart name, so the chart's computed names are these literals.
+    extraDeploy:
+      {{- range $sidecar, $port := dict "provisioner" 8090 "resizer" 8091 "snapshotter" 8092 "attacher" 8093 }}
+      - apiVersion: v1
+        kind: Service
+        metadata:
+          name: ceph-csi-rbd-provisioner-{{ $sidecar }}-metrics
+          annotations: *ceph-rbd-metrics
+          labels:
+            csi_sidecar: {{ $sidecar | quote }}
+        spec:
+          ports:
+            - name: {{ $sidecar | quote }}
+              port: {{ $port }}
+              targetPort: {{ $sidecar | quote }}
+          selector:
+            app: ceph-csi-rbd
+            component: provisioner
+            release: ceph-csi-rbd
+      {{- end }}
+      # Client key comes from 1Password through ESO; it never enters Helm values.
+      - apiVersion: external-secrets.io/v1
+        kind: ExternalSecret
+        metadata:
+          name: csi-rbd-secret
+          namespace: {{ (getResource "BootstrapSettings").data.cephNamespace | quote }}
+        spec:
+          refreshInterval: 1h
+          secretStoreRef:
+            kind: ClusterSecretStore
+            name: {{ (getResource "BootstrapSettings").data.secretStoreName | quote }}
+          target:
+            name: csi-rbd-secret
+            creationPolicy: Owner
+          data:
+            - secretKey: userID
+              remoteRef:
+                key: ceph-csi-rbd
+                property: username
+            - secretKey: userKey
+              remoteRef:
+                key: ceph-csi-rbd
+                property: password
+  cert-manager: |
+    cainjector:
+      deploymentAnnotations:
+        reloader.stakater.com/auto: "true"
+    config:
+      gatewayAPI:
+        enabled: true
+    crds:
+      enabled: true
+    deploymentAnnotations:
+      reloader.stakater.com/auto: "true"
+      secret.reloader.stakater.com/reload: {{ (getResource "BootstrapSettings").data.certificateCloudflareSecretName | quote }}
+    webhook:
+      deploymentAnnotations:
+        reloader.stakater.com/auto: "true"
+  external-dns-token-secret: |
+    resources:
+      - apiVersion: external-secrets.io/v1
+        kind: ExternalSecret
+        metadata:
+          name: {{ (getResource "BootstrapSettings").data.dnsCloudflareSecretName | quote }}
+        spec:
+          data:
+            - remoteRef:
+                key: {{ (getResource "BootstrapSettings").data.cloudflareSecretItem | quote }}
+                property: {{ (getResource "BootstrapSettings").data.cloudflareSecretField | quote }}
+              secretKey: {{ (getResource "BootstrapSettings").data.cloudflareSecretKey | quote }}
+          refreshInterval: 1h
+          secretStoreRef:
+            kind: ClusterSecretStore
+            name: {{ (getResource "BootstrapSettings").data.secretStoreName | quote }}
+          target:
+            creationPolicy: Owner
+            name: {{ (getResource "BootstrapSettings").data.dnsCloudflareSecretName | quote }}
+  external-dns: |
+    deploymentAnnotations:
+      reloader.stakater.com/auto: "true"
+    enableGatewayListenerSets: true
+    env:
+      - name: CF_API_TOKEN
+        valueFrom:
+          secretKeyRef:
+            key: {{ (getResource "BootstrapSettings").data.cloudflareSecretKey | quote }}
+            name: {{ (getResource "BootstrapSettings").data.dnsCloudflareSecretName | quote }}
+    extraArgs:
+      - --annotation-filter=external-dns.kubernetes.io/enabled=true
+    policy: sync
+    provider:
+      name: cloudflare
+    service:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/scrape: "true"
+    sources:
+      - service
+      - ingress
+      - gateway-httproute
+    txtOwnerId: {{ default (printf "%s-%s" .Cluster.metadata.namespace .Cluster.metadata.name) (index ((index .Cluster.metadata "annotations") | default dict) "bootstrap.projectsveltos.io/dns-owner") | quote }}
+  external-secrets-operator: |
+    certController:
+      podAnnotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8080"
+        prometheus.io/scrape: "true"
+    podAnnotations:
+      prometheus.io/path: /metrics
+      prometheus.io/port: "8080"
+      prometheus.io/scrape: "true"
+    webhook:
+      podAnnotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8080"
+        prometheus.io/scrape: "true"
+  cluster-secret-store: |
+    resources:
+      - apiVersion: v1
+        kind: Secret
+        metadata:
+          name: {{ (getResource "BootstrapSettings").data.connectTokenSecretName | quote }}
+        stringData:
+          token: {{ index (getResource "BootstrapCredentials").data "op-connect-token" | b64dec | quote }}
+        type: Opaque
+      - apiVersion: external-secrets.io/v1
+        kind: ClusterSecretStore
+        metadata:
+          name: {{ (getResource "BootstrapSettings").data.secretStoreName | quote }}
+        spec:
+          provider:
+            onepassword:
+              auth:
+                secretRef:
+                  connectTokenSecretRef:
+                    key: token
+                    name: {{ (getResource "BootstrapSettings").data.connectTokenSecretName | quote }}
+                    namespace: {{ (getResource "BootstrapSettings").data.externalSecretsNamespace | quote }}
+              connectHost: {{ (getResource "ClusterConfig").data.connectHost | quote }}
+              vaults:
+                {{ (getResource "ClusterConfig").data.connectVault | quote }}: 1
+  cluster-issuer-secrets: |
+    secretplain:
+      {{ (getResource "BootstrapSettings").data.eabSecretName | quote }}:
+        secret: {{ index (getResource "BootstrapCredentials").data "zerossl-hmac-key" | b64dec | quote }}
+  cluster-issuer-cloudflare-secret: |
+    resources:
+      - apiVersion: external-secrets.io/v1
+        kind: ExternalSecret
+        metadata:
+          name: {{ (getResource "BootstrapSettings").data.certificateCloudflareSecretName | quote }}
+        spec:
+          data:
+            - remoteRef:
+                key: {{ (getResource "BootstrapSettings").data.cloudflareSecretItem | quote }}
+                property: {{ (getResource "BootstrapSettings").data.cloudflareSecretField | quote }}
+              secretKey: {{ (getResource "BootstrapSettings").data.cloudflareSecretKey | quote }}
+          refreshInterval: 1h
+          secretStoreRef:
+            kind: ClusterSecretStore
+            name: {{ (getResource "BootstrapSettings").data.secretStoreName | quote }}
+          target:
+            creationPolicy: Owner
+            name: {{ (getResource "BootstrapSettings").data.certificateCloudflareSecretName | quote }}
+  cluster-issuer: |
+    clusterIssuers:
+      - apiVersion: cert-manager.io/v1
+        kind: ClusterIssuer
+        metadata:
+          name: {{ (getResource "BootstrapSettings").data.issuerName | quote }}
+        spec:
+          acme:
+            externalAccountBinding:
+              keyID: {{ index (getResource "BootstrapCredentials").data "zerossl-key-id" | b64dec | quote }}
+              keySecretRef:
+                key: secret
+                name: {{ (getResource "BootstrapSettings").data.eabSecretName | quote }}
+            privateKeySecretRef:
+              name: {{ (getResource "BootstrapSettings").data.acmeAccountSecretName | quote }}
+            server: https://acme.zerossl.com/v2/DV90
+            solvers:
+              - dns01:
+                  cloudflare:
+                    apiTokenSecretRef:
+                      key: {{ (getResource "BootstrapSettings").data.cloudflareSecretKey | quote }}
+                      name: {{ (getResource "BootstrapSettings").data.certificateCloudflareSecretName | quote }}
+                    email: {{ (getResource "ClusterConfig").data.certificateEmail | quote }}
+  gateway: |
+    resources:
+      - apiVersion: cilium.io/v2alpha1
+        kind: CiliumGatewayClassConfig
+        metadata:
+          name: tailscale
+          namespace: {{ (getResource "BootstrapSettings").data.gatewayNamespace | quote }}
+        spec:
+          # The Tailscale operator gives the Gateway's Service a tailnet IP and hostname.
+          service:
+            type: LoadBalancer
+            loadBalancerClass: tailscale
+      - apiVersion: gateway.networking.k8s.io/v1
+        kind: GatewayClass
+        metadata:
+          name: cilium-tailscale
+        spec:
+          controllerName: io.cilium/gateway-controller
+          parametersRef:
+            group: cilium.io
+            kind: CiliumGatewayClassConfig
+            name: tailscale
+            namespace: {{ (getResource "BootstrapSettings").data.gatewayNamespace | quote }}
+      - apiVersion: gateway.networking.k8s.io/v1
+        kind: Gateway
+        metadata:
+          name: {{ (getResource "BootstrapSettings").data.gatewayName | quote }}
+          namespace: {{ (getResource "BootstrapSettings").data.gatewayNamespace | quote }}
+          annotations:
+            cert-manager.io/cluster-issuer: {{ (getResource "BootstrapSettings").data.issuerName | quote }}
+        spec:
+          gatewayClassName: cilium-tailscale
+          infrastructure:
+            annotations:
+              tailscale.com/hostname: {{ printf "%s-gateway" (getResource "ClusterConfig").data.clusterName | quote }}
+          allowedListeners:
+            namespaces:
+              from: Selector
+              selector:
+                matchLabels:
+                  gateway-access: "true"
+          listeners:
+            # Keep this placeholder inert; application routes attach through ListenerSets.
+            - name: default
+              port: 80
+              protocol: HTTP
+              allowedRoutes:
+                namespaces:
+                  from: Selector
+                  selector:
+                    matchExpressions:
+                      - key: kubernetes.io/metadata.name
+                        operator: DoesNotExist
+  kro: |
+    deployment:
+      podAnnotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8078"
+        prometheus.io/scrape: "true"
+  gateway-route-rgd: |
+    resources:
+      - apiVersion: kro.run/v1alpha1
+        kind: ResourceGraphDefinition
+        metadata:
+          name: gatewayroute.kro.run
+        spec:
+          resources:
+            # The gateway's Tailscale proxy reports both its tailnet IP and its .ts.net
+            # name. Routes publish only the IP: a public CNAME into MagicDNS can't resolve.
+            - id: gateway
+              externalRef:
+                apiVersion: gateway.networking.k8s.io/v1
+                kind: Gateway
+                metadata:
+                  name: {{ (getResource "BootstrapSettings").data.gatewayName | quote }}
+                  namespace: {{ (getResource "BootstrapSettings").data.gatewayNamespace | quote }}
+              readyWhen:
+                - ${gateway.status.?addresses.orValue([]).exists(a, a.type == "IPAddress")}
+            - id: certificate
+              includeWhen:
+                - ${schema.spec.tls}
+              template:
+                apiVersion: cert-manager.io/v1
+                kind: Certificate
+                metadata:
+                  name: ${schema.spec.name}-tls
+                  namespace: ${schema.metadata.namespace}
+                spec:
+                  dnsNames:
+                    - ${schema.spec.hostname}
+                  issuerRef:
+                    kind: ClusterIssuer
+                    name: {{ (getResource "BootstrapSettings").data.issuerName | quote }}
+                  secretName: ${schema.spec.name}-tls
+            - id: listenerSetTLS
+              includeWhen:
+                - ${schema.spec.tls}
+              template:
+                apiVersion: gateway.networking.k8s.io/v1
+                kind: ListenerSet
+                metadata:
+                  name: ${schema.spec.name}
+                  namespace: ${schema.metadata.namespace}
+                  annotations:
+                    external-dns.kubernetes.io/target: ${gateway.status.addresses.filter(a, a.type == "IPAddress")[0].value}
+                spec:
+                  listeners:
+                    - allowedRoutes:
+                        namespaces:
+                          from: Same
+                      hostname: ${schema.spec.hostname}
+                      name: ${schema.spec.name}
+                      port: 443
+                      protocol: HTTPS
+                      tls:
+                        certificateRefs:
+                          - name: ${schema.spec.name}-tls
+                        mode: Terminate
+                    - allowedRoutes:
+                        namespaces:
+                          from: Same
+                      hostname: ${schema.spec.hostname}
+                      name: ${schema.spec.name}-http
+                      port: 80
+                      protocol: HTTP
+                  parentRef:
+                    group: gateway.networking.k8s.io
+                    kind: Gateway
+                    name: {{ (getResource "BootstrapSettings").data.gatewayName | quote }}
+                    namespace: {{ (getResource "BootstrapSettings").data.gatewayNamespace | quote }}
+            - id: listenerSetHTTP
+              includeWhen:
+                - ${!schema.spec.tls}
+              template:
+                apiVersion: gateway.networking.k8s.io/v1
+                kind: ListenerSet
+                metadata:
+                  name: ${schema.spec.name}
+                  namespace: ${schema.metadata.namespace}
+                  annotations:
+                    external-dns.kubernetes.io/target: ${gateway.status.addresses.filter(a, a.type == "IPAddress")[0].value}
+                spec:
+                  listeners:
+                    - allowedRoutes:
+                        namespaces:
+                          from: Same
+                      hostname: ${schema.spec.hostname}
+                      name: ${schema.spec.name}
+                      port: 80
+                      protocol: HTTP
+                  parentRef:
+                    group: gateway.networking.k8s.io
+                    kind: Gateway
+                    name: {{ (getResource "BootstrapSettings").data.gatewayName | quote }}
+                    namespace: {{ (getResource "BootstrapSettings").data.gatewayNamespace | quote }}
+            - id: httpsRedirect
+              includeWhen:
+                - ${schema.spec.tls}
+              template:
+                apiVersion: gateway.networking.k8s.io/v1
+                kind: HTTPRoute
+                metadata:
+                  name: ${schema.spec.name}-https-redirect
+                  namespace: ${schema.metadata.namespace}
+                spec:
+                  hostnames:
+                    - ${schema.spec.hostname}
+                  parentRefs:
+                    - group: gateway.networking.k8s.io
+                      kind: ListenerSet
+                      name: ${schema.spec.name}
+                      sectionName: ${schema.spec.name}-http
+                  rules:
+                    - filters:
+                        - requestRedirect:
+                            port: 443
+                            scheme: https
+                            statusCode: 301
+                          type: RequestRedirect
+            - id: route
+              template:
+                apiVersion: gateway.networking.k8s.io/v1
+                kind: HTTPRoute
+                metadata:
+                  annotations:
+                    external-dns.kubernetes.io/enabled: "true"
+                  name: ${schema.spec.name}
+                  namespace: ${schema.metadata.namespace}
+                spec:
+                  hostnames:
+                    - ${schema.spec.hostname}
+                  parentRefs:
+                    - group: gateway.networking.k8s.io
+                      kind: ListenerSet
+                      name: ${schema.spec.name}
+                      sectionName: ${schema.spec.name}
+                  rules:
+                    - matches:
+                        - path:
+                            type: PathPrefix
+                            value: ${schema.spec.pathPrefix}
+                      backendRefs:
+                        - name: ${schema.spec.serviceName}
+                          port: ${schema.spec.servicePort}
+          schema:
+            apiVersion: v1alpha1
+            kind: GatewayRoute
+            spec:
+              hostname: string
+              name: string
+              serviceName: string
+              servicePort: integer | default=80
+              # Limits the route to one API, e.g. Mimir's push endpoint without its query API.
+              pathPrefix: string | default="/"
+              tls: boolean | default=true
+            status:
+              # The Tailscale gateway IP the route's DNS records are published against.
+              address: ${gateway.status.addresses.filter(a, a.type == "IPAddress")[0].value}
+              # cert-manager's Ready condition reason ("Issued"). The ternary guards the
+              # empty-list index for tls=false instances, where the certificate resource
+              # is not part of the graph and the optional chain unwraps to an empty list.
+              certificate: >-
+                ${certificate.?status.?conditions.orValue([]).filter(c, c.type == "Ready").size() > 0 ? certificate.?status.?conditions.orValue([]).filter(c, c.type == "Ready")[0].?reason.orValue("") : ""}
+            # Defining any printer column replaces kro's defaults, so all of kro's
+            # (State/Ready/Age, see kro pkg/graph/crd/defaults.go) are repeated here.
+            additionalPrinterColumns:
+              - name: State
+                type: string
+                jsonPath: .status.state
+              - name: Ready
+                type: string
+                jsonPath: .status.conditions[?(@.type=="Ready")].status
+              - name: Address
+                type: string
+                jsonPath: .status.address
+              - name: Certificate
+                type: string
+                jsonPath: .status.certificate
+              - name: Age
+                type: date
+                jsonPath: .metadata.creationTimestamp
+  kubelet-csr-approver: |
+    providerRegex: {{ (getResource "ClusterConfig").data.kubeletProviderRegex | quote }}
+    providerIpPrefixes:
+      - {{ (getResource "ClusterConfig").data.kubeletProviderIpPrefix | quote }}
+    allowedDnsNames: 1
+    bypassDnsResolution: true
+    bypassHostnameCheck: false
+    ignoreNonSystemNode: false
+    skipDenyStep: false
+    leaderElection: true
+    replicas: 2
+    priorityClassName: system-cluster-critical
+  metrics-server: |
+    apiService:
+      insecureSkipTLSVerify: false
+    tls:
+      certManager:
+        addInjectorAnnotations: true
+        existingIssuer:
+          enabled: false
+      type: cert-manager
+  prometheus: |
+    alertmanager:
+      enabled: false
+    kube-state-metrics:
+      enabled: false
+    prometheus-node-exporter:
+      enabled: false
+    prometheus-pushgateway:
+      enabled: false
+    scrapeConfigs:
+      kubernetes-pods:
+        pre_relabel_configs: |
+          - source_labels: [__meta_kubernetes_pod_container_init]
+            action: drop
+            regex: 'true'
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape_via_service]
+            action: drop
+            regex: 'true'
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+            regex: '([0-9]+)'
+            target_label: __tmp_expected_metrics_port
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port, __meta_kubernetes_pod_container_port_number]
+            regex: ';([0-9]+)'
+            target_label: __tmp_expected_metrics_port
+          - source_labels: [__meta_kubernetes_pod_container_port_number]
+            regex: '([0-9]+)'
+            target_label: __tmp_discovered_metrics_port
+          - source_labels: [__meta_kubernetes_pod_container_port_number, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            regex: ';([0-9]+)'
+            target_label: __tmp_discovered_metrics_port
+          - source_labels: [__tmp_discovered_metrics_port]
+            action: keepequal
+            target_label: __tmp_expected_metrics_port
+      kubernetes-pods-slow:
+        pre_relabel_configs: |
+          - source_labels: [__meta_kubernetes_pod_container_init]
+            action: drop
+            regex: 'true'
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape_via_service]
+            action: drop
+            regex: 'true'
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+            regex: '([0-9]+)'
+            target_label: __tmp_expected_metrics_port
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port, __meta_kubernetes_pod_container_port_number]
+            regex: ';([0-9]+)'
+            target_label: __tmp_expected_metrics_port
+          - source_labels: [__meta_kubernetes_pod_container_port_number]
+            regex: '([0-9]+)'
+            target_label: __tmp_discovered_metrics_port
+          - source_labels: [__meta_kubernetes_pod_container_port_number, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            regex: ';([0-9]+)'
+            target_label: __tmp_discovered_metrics_port
+          - source_labels: [__tmp_discovered_metrics_port]
+            action: keepequal
+            target_label: __tmp_expected_metrics_port
+      kubernetes-service-endpoints:
+        pre_relabel_configs: |
+          - source_labels: [__meta_kubernetes_endpointslice_port]
+            action: keep
+            regex: '[0-9]+'
+          - source_labels: [__meta_kubernetes_service_label_prometheus_io_service_monitor]
+            action: drop
+            regex: 'false'
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_port]
+            regex: '([0-9]+)'
+            target_label: __tmp_expected_metrics_port
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_port, __meta_kubernetes_endpointslice_port]
+            regex: ';([0-9]+)'
+            target_label: __tmp_expected_metrics_port
+          - source_labels: [__meta_kubernetes_endpointslice_port]
+            target_label: __tmp_discovered_metrics_port
+          - source_labels: [__tmp_discovered_metrics_port]
+            action: keepequal
+            target_label: __tmp_expected_metrics_port
+      kubernetes-service-endpoints-slow:
+        pre_relabel_configs: |
+          - source_labels: [__meta_kubernetes_endpointslice_port]
+            action: keep
+            regex: '[0-9]+'
+          - source_labels: [__meta_kubernetes_service_label_prometheus_io_service_monitor]
+            action: drop
+            regex: 'false'
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_port]
+            regex: '([0-9]+)'
+            target_label: __tmp_expected_metrics_port
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_port, __meta_kubernetes_endpointslice_port]
+            regex: ';([0-9]+)'
+            target_label: __tmp_expected_metrics_port
+          - source_labels: [__meta_kubernetes_endpointslice_port]
+            target_label: __tmp_discovered_metrics_port
+          - source_labels: [__tmp_discovered_metrics_port]
+            action: keepequal
+            target_label: __tmp_expected_metrics_port
+    server:
+      defaultFlagsOverride:
+        - --agent
+        - --config.file=/etc/config/prometheus.yml
+        - --web.enable-lifecycle
+        - --storage.agent.path=/prometheus
+        - --storage.agent.retention.max-time=2h
+      extraSecretMounts: []
+      global:
+        external_labels:
+          cluster: {{ (getResource "ClusterConfig").data.clusterName | quote }}
+          environment: {{ (getResource "ClusterConfig").data.environment | quote }}
+      persistentVolume:
+        enabled: true
+        mountPath: /prometheus
+        size: 1Gi
+        storageClass: {{ (getResource "ClusterConfig").data.prometheusStorageClass | quote }}
+      remoteWrite:
+        - url: {{ (getResource "ClusterConfig").data.prometheusRemoteWriteUrl | quote }}
+    serverFiles:
+      prometheus.yml:
+        rule_files: []
+  reloader: |
+    reloader:
+      reloadOnCreate: true
+      reloadOnDelete: true
+      deployment:
+        pod:
+          annotations:
+            prometheus.io/path: /metrics
+            prometheus.io/port: "9090"
+            prometheus.io/scrape: "true"
+  tailscale-operator: |
+    apiServerProxyConfig:
+      allowImpersonation: "true"
+      mode: "false"
+    ingressClass:
+      enabled: false
+    installCRDs: true
+    oauth:
+      clientId: {{ (getResource "ClusterConfig").data.tailscaleClientId | quote }}
+      clientSecret: {{ index (getResource "BootstrapCredentials").data "tailscale-client-secret" | b64dec | quote }}
+    operatorConfig:
+      defaultTags:
+        - tag:k8s-operator
+      hostname: {{ default (printf "tailscale-operator-%s-%s" .Cluster.metadata.namespace .Cluster.metadata.name) (index ((index .Cluster.metadata "annotations") | default dict) "bootstrap.projectsveltos.io/tailscale-hostname") | quote }}
+      image:
+        digest: ""
+        pullPolicy: Always
+        repository: tailscale/k8s-operator
+        tag: ""
+      logging: info
+      nodeSelector:
+        kubernetes.io/os: linux
+      podAnnotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8080"
+        prometheus.io/scrape: "true"
+    proxyConfig:
+      defaultProxyClass: ""
+      defaultTags: tag:k8s
+      firewallMode: auto
+      image:
+        digest: ""
+        repository: tailscale/tailscale
+        tag: ""

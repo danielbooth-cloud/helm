@@ -1,0 +1,68 @@
+{{- define "bootstrap.profileName" -}}
+{{ printf "%s-%s" .root.Values.profilePrefix .name }}
+{{- end -}}
+
+{{- define "bootstrap.commonSpec" -}}
+clusterSelector:
+  matchLabels:
+    bootstrap.projectsveltos.io/enabled: "true"
+    {{- if .clustermesh }}
+    bootstrap.projectsveltos.io/clustermesh: "true"
+    {{- end }}
+  matchExpressions:
+    - key: bootstrap.projectsveltos.io/cluster
+      operator: Exists
+syncMode: ContinuousWithDriftDetection
+stopMatchingBehavior: {{ if .withdraw }}WithdrawPolicies{{ else }}LeavePolicies{{ end }}
+continueOnConflict: false
+continueOnError: false
+{{- end -}}
+
+{{- define "bootstrap.clusterReference" -}}
+- identifier: ClusterConfig
+  resource:
+    apiVersion: v1
+    kind: ConfigMap
+    namespace: {{ .Values.registrationNamespace | quote }}
+    name: {{ "{{ .Cluster.metadata.namespace }}-{{ .Cluster.metadata.name }}-bootstrap-config" | quote }}
+{{- end -}}
+
+{{- define "bootstrap.chartReferences" -}}
+{{ include "bootstrap.clusterReference" .root }}
+- identifier: BootstrapSettings
+  resource:
+    apiVersion: v1
+    kind: ConfigMap
+    namespace: {{ .root.Release.Namespace | quote }}
+    name: {{ printf "%s-settings" .root.Release.Name | quote }}
+{{- if .credentials }}
+- identifier: BootstrapCredentials
+  resource:
+    apiVersion: v1
+    kind: Secret
+    namespace: {{ .root.Release.Namespace | quote }}
+    name: {{ printf "%s-credentials" .root.Release.Name | quote }}
+{{- end }}
+{{- end -}}
+
+{{- define "bootstrap.valuesSecret" -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ printf "%s-%s-values" .root.Values.profilePrefix .release | quote }}
+  namespace: {{ .root.Release.Namespace | quote }}
+  annotations:
+    projectsveltos.io/template: ok
+type: addons.projectsveltos.io/cluster-profile
+data:
+  values.yaml: {{ index .root.Values.applicationValues .release | b64enc | quote }}
+{{- end -}}
+
+{{- define "bootstrap.valuesFrom" -}}
+- kind: Secret
+  name: {{ printf "%s-%s-values" .root.Values.profilePrefix .release | quote }}
+  namespace: {{ .root.Release.Namespace | quote }}
+- kind: Secret
+  name: {{ printf "{{ .Cluster.metadata.name }}-bootstrap-%s" .release | quote }}
+  optional: true
+{{- end -}}
