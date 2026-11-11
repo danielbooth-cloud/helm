@@ -48,6 +48,10 @@ minter:
     groups:
       - sveltos:bootstrap
 
+# Argo CD on the management cluster only; workload clusters get the registration profile.
+argocd:
+  enabled: false
+
 
 namespaces:
   certManager: cert-manager
@@ -61,6 +65,7 @@ namespaces:
   ceph: ceph-system
   gateway: gateway
   kubeSystem: kube-system
+  argocd: argocd
 
 namespaceLabels:
   monitoring:
@@ -110,9 +115,70 @@ versions:
   kubeletCsrApprover: 1.2.15
   cephCsi: 3.18.1
   onePasswordConnect: 2.4.3
+  argoCd: 10.17.2
 
 # These are Sveltos value documents, deliberately emitted without Helm tpl.
 applicationValues:
+  argocd: |
+    fullnameOverride: argocd
+    createClusterRoles: true
+    crds:
+      install: true
+      keep: true
+    global:
+      domain: {{ (getResource "ClusterConfig").data.argocdDomain | quote }}
+    configs:
+      params:
+        # The north-south Gateway terminates TLS, so its GatewayRoute targets a plaintext Service.
+        server.insecure: true
+      cm:
+        url: {{ printf "https://%s" (getResource "ClusterConfig").data.argocdDomain | quote }}
+        # Direct OIDC against tsidp; dex stays disabled. Redirect URI is <url>/auth/callback.
+        oidc.config: |
+          name: {{ (getResource "ClusterConfig").data.argocdOidcName }}
+          issuer: {{ (getResource "ClusterConfig").data.argocdOidcIssuer }}
+          clientID: ${{ (getResource "ClusterConfig").data.argocdOidcSecretName }}:clientID
+          clientSecret: ${{ (getResource "ClusterConfig").data.argocdOidcSecretName }}:clientSecret
+          requestedScopes: ["openid", "email", "profile"]
+      rbac:
+        # tsidp asserts no groups, so the policy is matched on the email claim.
+        policy.default: {{ (getResource "ClusterConfig").data.argocdRbacDefault | quote }}
+        policy.csv: |
+          g, {{ (getResource "ClusterConfig").data.argocdAdminIdentity }}, role:admin
+        scopes: '[email]'
+    server:
+      deploymentAnnotations:
+        reloader.stakater.com/auto: "true"
+        # argocd-cm names the OIDC client Secret instead of referencing it, so auto-reload cannot see it.
+        secret.reloader.stakater.com/reload: {{ (getResource "ClusterConfig").data.argocdOidcSecretName | quote }}
+    repoServer:
+      # No environment in the sidecar: each Application selects its helmfile environment with the
+      # HELMFILE_GLOBAL_OPTIONS parameter (-e <overlay>), which the plugin exports unprefixed.
+      volumes:
+        - name: cmp-tmp
+          emptyDir: {}
+      extraContainers:
+        - name: helmfile-plugin
+          image: {{ (getResource "ClusterConfig").data.argocdCmpImage }}
+          command: [/var/run/argocd/argocd-cmp-server]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+          env:
+            - name: HELMFILE_DISABLE_INSECURE_FEATURES
+              value: "true"
+            - name: HELMFILE_SKIP_INSECURE_TEMPLATE_FUNCTIONS
+              value: "true"
+            # Rendered helmfiles declare their own release namespaces; the Application's destination must not override them.
+            - name: HELMFILE_USE_CONTEXT_NAMESPACE
+              value: "true"
+          volumeMounts:
+            - mountPath: /var/run/argocd
+              name: var-files
+            - mountPath: /home/argocd/cmp-server/plugins
+              name: plugins
+            - mountPath: /tmp
+              name: cmp-tmp
   mimir-gateway: |
     resources:
       # ClusterMesh global Service shim: no selector, no local endpoints. Cilium adds the
