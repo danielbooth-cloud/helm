@@ -70,6 +70,8 @@ namespaces:
 namespaceLabels:
   monitoring:
     gateway-access: "true"
+  argocd:
+    gateway-access: "true"
   tailscale:
     pod-security.kubernetes.io/enforce: privileged
   # Node plugins run privileged on the host network.
