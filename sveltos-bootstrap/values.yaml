@@ -29,6 +29,25 @@ clusterMesh:
 # release namespace).
 registrationNamespace: clusters
 
+# Mints each registered cluster's kubeconfig on this cluster when Terraform writes its Omni
+# account key Secret; enabled together with the registration path in omni/cluster.
+minter:
+  enabled: false
+  image: alpine/k8s:1.37.2
+  omnictl:
+    version: 1.13.2
+    sha256: 4e712b0f1fee84d89b1e8fa6ccf8618991e2167c8c6b533c9e7df16afd7b1286
+  # Reachable from this cluster only; the minted kubeconfig targets the k8s proxy.
+  omniEndpoint: ""
+  kubeconfigSecretSuffix: -sveltos-kubeconfig
+  kubeconfig:
+    # Bound through the sveltos-bootstrap ClusterRole every cluster applies at bootstrap.
+    user: sveltos
+    # Long-lived so a dropped event cannot strand a cluster; a key rotation re-mints.
+    ttl: 8760h
+    groups:
+      - sveltos:bootstrap
+
 
 namespaces:
   certManager: cert-manager
