@@ -42,24 +42,9 @@ spec:
       {{- if .Values.runtimeClassName }}
       runtimeClassName: {{ .Values.runtimeClassName }}
       {{- end }}
-      {{- if .Values.initContainers }}
+      {{- with .Values.initContainers }}
       initContainers:
-        - name: "{{ include "universal.name" . }}-init"
-          image: "{{ .Values.initContainers.image.repository }}:{{ .Values.initContainers.image.tag }}"
-          imagePullPolicy: {{ .Values.initContainers.image.pullPolicy | default .Values.image.pullPolicy }}
-          {{- with .Values.initContainers.args }}
-          args:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          volumeMounts:
-          {{- if .Values.persistence.data.enabled }}
-            - name: {{ include "universal.name" . }}-data
-              mountPath: {{ .Values.persistence.data.mountPath }}
-          {{- end }}
-          {{- if .Values.persistence.logs.enabled }}
-            - name: {{ include "universal.name" . }}-logs
-              mountPath:  {{ .Values.persistence.logs.mountPath }}
-          {{- end }}
+        {{- include "universal.initContainers" $ | trim | nindent 8 }}
       {{- end }}
       containers:
         - name: {{ include "universal.name" . }}

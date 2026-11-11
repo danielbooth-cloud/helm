@@ -36,30 +36,9 @@ spec:
           {{- if .Values.runtimeClassName }}
           runtimeClassName: {{ .Values.runtimeClassName }}
           {{- end }}
-          {{- if .Values.initContainers }}
+          {{- with .Values.initContainers }}
           initContainers:
-            - image: "{{ .Values.initContainers.image.repository }}:{{ .Values.initContainers.image.tag }}"
-              imagePullPolicy: {{ .Values.image.pullPolicy }}
-              name: "{{ include "universal.name" . }}-init"
-              {{- if .Values.initContainers }}
-              args:
-              {{- range .Values.initContainers.args }}
-                - {{ . }}
-              {{- end }}
-              {{- end }}
-              {{- if .Values.persistence }}
-              volumeMounts:
-                - name: {{ include "universal.name" . }}-setup-scripts
-                  mountPath: /scripts
-              {{- if .Values.persistence.data.enabled }}
-                - name: {{ include "universal.name" . }}-data
-                  mountPath: {{ .Values.persistence.data.mountPath }}
-              {{- end }}
-            {{- if .Values.persistence.logs.enabled }}
-                - name: {{ include "universal.name" . }}-logs
-                  mountPath: {{ .Values.persistence.logs.mountPath }}
-              {{- end }}
-              {{- end }}
+            {{- include "universal.initContainers" $ | trim | nindent 12 }}
           {{- end }}
           containers:
           - name: {{ include "universal.name" . }}
