@@ -1,5 +1,5 @@
-{{- if .Values.createKubeconfig.enabled }}
-# Sets up each registered cluster's Sveltos kubeconfig on the management cluster. Terraform
+{{- if .Values.sveltosRegistration.enabled }}
+# Registers each cluster with Sveltos by writing its kubeconfig on the management cluster. Terraform
 # writes a labelled Secret holding the cluster's Omni account key; Sveltos reacts to it and
 # runs this Job, so the key never leaves the management plane. A key rotation rewrites the
 # Secret and the event configures the kubeconfig again.
@@ -7,7 +7,7 @@
 apiVersion: lib.projectsveltos.io/v1beta1
 kind: EventSource
 metadata:
-  name: {{ .Release.Name }}-registrations
+  name: {{ .Release.Name }}-sveltos-registrations
   namespace: {{ .Release.Namespace }}
 spec:
   collectResources: true
@@ -23,7 +23,7 @@ spec:
 apiVersion: lib.projectsveltos.io/v1beta1
 kind: EventTrigger
 metadata:
-  name: {{ .Release.Name }}-create-kubeconfig
+  name: {{ .Release.Name }}-sveltos-registration
   namespace: {{ .Release.Namespace }}
 spec:
   # Events are detected on the management cluster itself. It is identified by the cluster
@@ -31,24 +31,24 @@ spec:
   sourceClusterSelector:
     matchLabels:
       bootstrap.projectsveltos.io/cluster: {{ .Values.managementCluster.cluster | default .Values.managementCluster.name | quote }}
-  # This Job lands back on the management cluster, where Omni and the keys are.
+  # The Job runs on the management cluster, where Omni and the keys are.
   destinationCluster:
     kind: SveltosCluster
     apiVersion: lib.projectsveltos.io/v1beta1
     name: {{ .Values.managementCluster.name | quote }}
     namespace: {{ .Values.managementCluster.namespace | quote }}
-  eventSourceName: {{ printf "%s-registrations" .Release.Name | quote }}
+  eventSourceName: {{ printf "%s-sveltos-registrations" .Release.Name | quote }}
   # One ClusterProfile per registration, so one cluster cannot block another's.
   oneForEvent: true
   policyRefs:
-    - name: {{ printf "%s-create-kubeconfig-job" .Release.Name | quote }}
+    - name: {{ printf "%s-sveltos-registration-job" .Release.Name | quote }}
       namespace: {{ .Release.Namespace | quote }}
       kind: ConfigMap
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ printf "%s-create-kubeconfig-job" .Release.Name | quote }}
+  name: {{ printf "%s-sveltos-registration-job" .Release.Name | quote }}
   namespace: {{ .Release.Namespace | quote }}
   annotations:
     projectsveltos.io/template: ok
@@ -57,7 +57,7 @@ data:
     apiVersion: batch/v1
     kind: Job
     metadata:
-      name: {{ "{{ index .Resource.metadata.labels \"bootstrap.projectsveltos.io/registration-cluster\" }}-create-kubeconfig-{{ .Resource.metadata.resourceVersion }}" }}
+      name: {{ "{{ index .Resource.metadata.labels \"bootstrap.projectsveltos.io/registration-cluster\" }}-sveltos-registration-{{ .Resource.metadata.resourceVersion }}" }}
       namespace: {{ .Release.Namespace }}
       labels:
         app.kubernetes.io/managed-by: {{ .Release.Name }}
@@ -70,7 +70,7 @@ data:
           labels:
             app.kubernetes.io/managed-by: {{ .Release.Name }}
         spec:
-          serviceAccountName: {{ printf "%s-create-kubeconfig" .Release.Name }}
+          serviceAccountName: {{ printf "%s-sveltos-registration" .Release.Name }}
           restartPolicy: Never
           securityContext:
             runAsNonRoot: true
@@ -80,13 +80,13 @@ data:
               type: RuntimeDefault
           initContainers:
             - name: omnictl
-              image: {{ .Values.createKubeconfig.image | quote }}
+              image: {{ .Values.sveltosRegistration.image | quote }}
               command: [sh, -ec]
               args:
                 - |
                   curl -fsSL -o /tools/omnictl.download \
-                    "https://github.com/siderolabs/omni/releases/download/v{{ .Values.createKubeconfig.omnictl.version }}/omnictl-linux-amd64"
-                  echo "{{ .Values.createKubeconfig.omnictl.sha256 }}  /tools/omnictl.download" | sha256sum -c -
+                    "https://github.com/siderolabs/omni/releases/download/v{{ .Values.sveltosRegistration.omnictl.version }}/omnictl-linux-amd64"
+                  echo "{{ .Values.sveltosRegistration.omnictl.sha256 }}  /tools/omnictl.download" | sha256sum -c -
                   chmod 0755 /tools/omnictl.download
                   mv /tools/omnictl.download /tools/omnictl
               securityContext: &container-security
@@ -98,9 +98,9 @@ data:
                 - name: tools
                   mountPath: /tools
           containers:
-            - name: create-kubeconfig
-              image: {{ .Values.createKubeconfig.image | quote }}
-              command: [bash, /scripts/create-kubeconfig.sh]
+            - name: sveltos-registration
+              image: {{ .Values.sveltosRegistration.image | quote }}
+              command: [bash, /scripts/sveltos-registration.sh]
               securityContext: *container-security
               env:
                 HOME:
@@ -112,15 +112,15 @@ data:
                 OMNI_KEY_SECRET:
                   value: {{ "{{ .Resource.metadata.name }}" }}
                 KUBECONFIG_SECRET:
-                  value: {{ printf "{{ index .Resource.metadata.labels \"bootstrap.projectsveltos.io/registration-cluster\" }}%s" .Values.createKubeconfig.kubeconfigSecretSuffix }}
+                  value: {{ printf "{{ index .Resource.metadata.labels \"bootstrap.projectsveltos.io/registration-cluster\" }}%s" .Values.sveltosRegistration.kubeconfigSecretSuffix }}
                 OMNI_ENDPOINT:
-                  value: {{ required "createKubeconfig.omniEndpoint is required" .Values.createKubeconfig.omniEndpoint | quote }}
+                  value: {{ required "sveltosRegistration.omniEndpoint is required" .Values.sveltosRegistration.omniEndpoint | quote }}
                 KUBECONFIG_USER:
-                  value: {{ .Values.createKubeconfig.kubeconfig.user | quote }}
+                  value: {{ .Values.sveltosRegistration.kubeconfig.user | quote }}
                 KUBECONFIG_GROUPS:
-                  value: {{ join "," .Values.createKubeconfig.kubeconfig.groups | quote }}
+                  value: {{ join "," .Values.sveltosRegistration.kubeconfig.groups | quote }}
                 KUBECONFIG_TTL:
-                  value: {{ .Values.createKubeconfig.kubeconfig.ttl | quote }}
+                  value: {{ .Values.sveltosRegistration.kubeconfig.ttl | quote }}
                 OWNER:
                   value: {{ .Release.Name | quote }}
               volumeMounts:
@@ -139,15 +139,15 @@ data:
               emptyDir: {}
             - name: script
               configMap:
-                name: {{ printf "%s-create-kubeconfig-script" .Release.Name }}
+                name: {{ printf "%s-sveltos-registration-script" .Release.Name }}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ printf "%s-create-kubeconfig-script" .Release.Name | quote }}
+  name: {{ printf "%s-sveltos-registration-script" .Release.Name | quote }}
   namespace: {{ .Release.Namespace | quote }}
 data:
-  create-kubeconfig.sh: |
+  sveltos-registration.sh: |
     #!/usr/bin/env bash
     # Write one cluster's kubeconfig from its Omni account key; re-runs are idempotent.
     set -euo pipefail
@@ -179,13 +179,13 @@ data:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ printf "%s-create-kubeconfig" .Release.Name | quote }}
+  name: {{ printf "%s-sveltos-registration" .Release.Name | quote }}
   namespace: {{ .Release.Namespace | quote }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ printf "%s-create-kubeconfig" .Release.Name | quote }}
+  name: {{ printf "%s-sveltos-registration" .Release.Name | quote }}
   namespace: {{ .Values.registrationNamespace | quote }}
 rules:
   # The registration namespace holds nothing but Omni account keys and kubeconfigs.
@@ -196,14 +196,14 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ printf "%s-create-kubeconfig" .Release.Name | quote }}
+  name: {{ printf "%s-sveltos-registration" .Release.Name | quote }}
   namespace: {{ .Values.registrationNamespace | quote }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ printf "%s-create-kubeconfig" .Release.Name | quote }}
+  name: {{ printf "%s-sveltos-registration" .Release.Name | quote }}
 subjects:
   - kind: ServiceAccount
-    name: {{ printf "%s-create-kubeconfig" .Release.Name | quote }}
+    name: {{ printf "%s-sveltos-registration" .Release.Name | quote }}
     namespace: {{ .Release.Namespace | quote }}
 {{- end }}

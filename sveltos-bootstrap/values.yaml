@@ -29,9 +29,9 @@ clusterMesh:
 # release namespace).
 registrationNamespace: clusters
 
-# Creates each registered cluster's Sveltos kubeconfig on this cluster when Terraform
+# Registers each cluster with Sveltos by writing its kubeconfig here when Terraform
 # writes its Omni account key Secret; enabled with the registration path in omni/cluster.
-createKubeconfig:
+sveltosRegistration:
   enabled: false
   image: alpine/k8s:1.37.2
   omnictl:
