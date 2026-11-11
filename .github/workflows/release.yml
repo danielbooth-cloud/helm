@@ -5,7 +5,8 @@ on:
     branches:
       - main
     paths:
-      - "*/Chart.yaml"
+      - "*/**"
+  workflow_dispatch:
 
 permissions:
   contents: write
