@@ -29,9 +29,9 @@ clusterMesh:
 # release namespace).
 registrationNamespace: clusters
 
-# Mints each registered cluster's kubeconfig on this cluster when Terraform writes its Omni
-# account key Secret; enabled together with the registration path in omni/cluster.
-minter:
+# Configures each registered cluster's Sveltos kubeconfig on this cluster when Terraform
+# writes its Omni account key Secret; enabled with the registration path in omni/cluster.
+setupKubeconfigs:
   enabled: false
   image: alpine/k8s:1.37.2
   omnictl:

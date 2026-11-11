@@ -1,8 +1,8 @@
-{{- if .Values.minter.enabled }}
-# Mints each registered cluster's kubeconfig on the management cluster. Terraform writes a
-# labelled Secret holding the cluster's Omni account key; Sveltos reacts to it and runs the
-# Job here, so the key never leaves the management plane. A key rotation rewrites the Secret
-# and the event re-mints a fresh token.
+{{- if .Values.setupKubeconfigs.enabled }}
+# Sets up each registered cluster's Sveltos kubeconfig on the management cluster. Terraform
+# writes a labelled Secret holding the cluster's Omni account key; Sveltos reacts to it and
+# runs this Job, so the key never leaves the management plane. A key rotation rewrites the
+# Secret and the event configures the kubeconfig again.
 ---
 apiVersion: lib.projectsveltos.io/v1beta1
 kind: EventSource
@@ -23,7 +23,7 @@ spec:
 apiVersion: lib.projectsveltos.io/v1beta1
 kind: EventTrigger
 metadata:
-  name: {{ .Release.Name }}-kubeconfig-minter
+  name: {{ .Release.Name }}-setup-kubeconfigs
   namespace: {{ .Release.Namespace }}
 spec:
   # Events are detected on the management cluster itself. It is identified by the cluster
@@ -41,14 +41,14 @@ spec:
   # One ClusterProfile per registration, so one cluster's mint cannot block another's.
   oneForEvent: true
   policyRefs:
-    - name: {{ printf "%s-minter-job" .Release.Name | quote }}
+    - name: {{ printf "%s-setup-kubeconfigs-job" .Release.Name | quote }}
       namespace: {{ .Release.Namespace | quote }}
       kind: ConfigMap
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ printf "%s-minter-job" .Release.Name | quote }}
+  name: {{ printf "%s-setup-kubeconfigs-job" .Release.Name | quote }}
   namespace: {{ .Release.Namespace | quote }}
   annotations:
     projectsveltos.io/template: ok
@@ -57,7 +57,7 @@ data:
     apiVersion: batch/v1
     kind: Job
     metadata:
-      name: {{ "{{ .Resource.metadata.name }}-{{ .Resource.metadata.resourceVersion }}" }}
+      name: {{ "{{ index .Resource.metadata.labels \"bootstrap.projectsveltos.io/registration-cluster\" }}-setup-kubeconfigs-{{ .Resource.metadata.resourceVersion }}" }}
       namespace: {{ .Release.Namespace }}
       labels:
         app.kubernetes.io/managed-by: {{ .Release.Name }}
@@ -70,7 +70,7 @@ data:
           labels:
             app.kubernetes.io/managed-by: {{ .Release.Name }}
         spec:
-          serviceAccountName: {{ printf "%s-minter" .Release.Name }}
+          serviceAccountName: {{ printf "%s-setup-kubeconfigs" .Release.Name }}
           restartPolicy: Never
           securityContext:
             runAsNonRoot: true
@@ -80,13 +80,13 @@ data:
               type: RuntimeDefault
           initContainers:
             - name: omnictl
-              image: {{ .Values.minter.image | quote }}
+              image: {{ .Values.setupKubeconfigs.image | quote }}
               command: [sh, -ec]
               args:
                 - |
                   curl -fsSL -o /tools/omnictl.download \
-                    "https://github.com/siderolabs/omni/releases/download/v{{ .Values.minter.omnictl.version }}/omnictl-linux-amd64"
-                  echo "{{ .Values.minter.omnictl.sha256 }}  /tools/omnictl.download" | sha256sum -c -
+                    "https://github.com/siderolabs/omni/releases/download/v{{ .Values.setupKubeconfigs.omnictl.version }}/omnictl-linux-amd64"
+                  echo "{{ .Values.setupKubeconfigs.omnictl.sha256 }}  /tools/omnictl.download" | sha256sum -c -
                   chmod 0755 /tools/omnictl.download
                   mv /tools/omnictl.download /tools/omnictl
               securityContext: &container-security
@@ -98,9 +98,9 @@ data:
                 - name: tools
                   mountPath: /tools
           containers:
-            - name: mint
-              image: {{ .Values.minter.image | quote }}
-              command: [bash, /scripts/mint.sh]
+            - name: setup-kubeconfigs
+              image: {{ .Values.setupKubeconfigs.image | quote }}
+              command: [bash, /scripts/setup-kubeconfigs.sh]
               securityContext: *container-security
               env:
                 HOME:
@@ -112,15 +112,15 @@ data:
                 OMNI_KEY_SECRET:
                   value: {{ "{{ .Resource.metadata.name }}" }}
                 KUBECONFIG_SECRET:
-                  value: {{ printf "{{ index .Resource.metadata.labels \"bootstrap.projectsveltos.io/registration-cluster\" }}%s" .Values.minter.kubeconfigSecretSuffix }}
+                  value: {{ printf "{{ index .Resource.metadata.labels \"bootstrap.projectsveltos.io/registration-cluster\" }}%s" .Values.setupKubeconfigs.kubeconfigSecretSuffix }}
                 OMNI_ENDPOINT:
-                  value: {{ required "minter.omniEndpoint is required" .Values.minter.omniEndpoint | quote }}
+                  value: {{ required "setupKubeconfigs.omniEndpoint is required" .Values.setupKubeconfigs.omniEndpoint | quote }}
                 KUBECONFIG_USER:
-                  value: {{ .Values.minter.kubeconfig.user | quote }}
+                  value: {{ .Values.setupKubeconfigs.kubeconfig.user | quote }}
                 KUBECONFIG_GROUPS:
-                  value: {{ join "," .Values.minter.kubeconfig.groups | quote }}
+                  value: {{ join "," .Values.setupKubeconfigs.kubeconfig.groups | quote }}
                 KUBECONFIG_TTL:
-                  value: {{ .Values.minter.kubeconfig.ttl | quote }}
+                  value: {{ .Values.setupKubeconfigs.kubeconfig.ttl | quote }}
                 OWNER:
                   value: {{ .Release.Name | quote }}
               volumeMounts:
@@ -139,17 +139,17 @@ data:
               emptyDir: {}
             - name: script
               configMap:
-                name: {{ printf "%s-minter-script" .Release.Name }}
+                name: {{ printf "%s-setup-kubeconfigs-script" .Release.Name }}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ printf "%s-minter-script" .Release.Name | quote }}
+  name: {{ printf "%s-setup-kubeconfigs-script" .Release.Name | quote }}
   namespace: {{ .Release.Namespace | quote }}
 data:
-  mint.sh: |
+  setup-kubeconfigs.sh: |
     #!/usr/bin/env bash
-    # Mint one cluster's kubeconfig from its Omni account key; re-runs are idempotent.
+    # Configure one cluster's kubeconfig from its Omni account key; re-runs are idempotent.
     set -euo pipefail
     export PATH="/tools:$PATH"
     export OMNI_ENDPOINT
@@ -179,13 +179,13 @@ data:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ printf "%s-minter" .Release.Name | quote }}
+  name: {{ printf "%s-setup-kubeconfigs" .Release.Name | quote }}
   namespace: {{ .Release.Namespace | quote }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ printf "%s-minter" .Release.Name | quote }}
+  name: {{ printf "%s-setup-kubeconfigs" .Release.Name | quote }}
   namespace: {{ .Values.registrationNamespace | quote }}
 rules:
   # The registration namespace holds nothing but Omni account keys and kubeconfigs.
@@ -196,14 +196,14 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ printf "%s-minter" .Release.Name | quote }}
+  name: {{ printf "%s-setup-kubeconfigs" .Release.Name | quote }}
   namespace: {{ .Values.registrationNamespace | quote }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ printf "%s-minter" .Release.Name | quote }}
+  name: {{ printf "%s-setup-kubeconfigs" .Release.Name | quote }}
 subjects:
   - kind: ServiceAccount
-    name: {{ printf "%s-minter" .Release.Name | quote }}
+    name: {{ printf "%s-setup-kubeconfigs" .Release.Name | quote }}
     namespace: {{ .Release.Namespace | quote }}
 {{- end }}
