@@ -175,6 +175,24 @@ applicationValues:
         policy.csv: |
           g, {{ (getResource "ClusterConfig").data.argocdAdminIdentity }}, role:admin
         scopes: '[email]'
+      # Replaces the plugin.yaml baked into the camptocamp helmfile image (mounted below).
+      # Argo CD hands each Application's plugin.env to the plugin as ARGOCD_ENV_<name>, but
+      # camptocamp's script only reads the unprefixed HELMFILE_GLOBAL_OPTIONS, so this
+      # re-exports that one variable and nothing else.
+      cmp:
+        create: true
+        plugins:
+          helmfile:
+            init:
+              command: [bash, -c]
+              args:
+                - export HELMFILE_GLOBAL_OPTIONS="${ARGOCD_ENV_HELMFILE_GLOBAL_OPTIONS:-}"; exec /usr/local/bin/argocd-helmfile init
+            generate:
+              command: [bash, -c]
+              args:
+                - export HELMFILE_GLOBAL_OPTIONS="${ARGOCD_ENV_HELMFILE_GLOBAL_OPTIONS:-}"; exec /usr/local/bin/argocd-helmfile generate
+            discover:
+              fileName: helmfile.yaml
     server:
       deploymentAnnotations:
         reloader.stakater.com/auto: "true"
@@ -182,10 +200,16 @@ applicationValues:
         secret.reloader.stakater.com/reload: {{ (getResource "ClusterConfig").data.argocdOidcSecretName | quote }}
     repoServer:
       # No environment in the sidecar: each Application selects its helmfile environment with the
-      # HELMFILE_GLOBAL_OPTIONS parameter (-e <overlay>), which the plugin exports unprefixed.
+      # HELMFILE_GLOBAL_OPTIONS parameter (-e <overlay>), re-exported unprefixed by configs.cmp above.
+      # The plugin config is mounted as a single file, which does not update in place; restart on change.
+      deploymentAnnotations:
+        configmap.reloader.stakater.com/reload: argocd-cmp-cm
       volumes:
         - name: cmp-tmp
           emptyDir: {}
+        - name: cmp-helmfile
+          configMap:
+            name: argocd-cmp-cm
       extraContainers:
         - name: helmfile-plugin
           image: {{ (getResource "ClusterConfig").data.argocdCmpImage }}
@@ -208,6 +232,9 @@ applicationValues:
               name: plugins
             - mountPath: /tmp
               name: cmp-tmp
+            - mountPath: /home/argocd/cmp-server/config/plugin.yaml
+              name: cmp-helmfile
+              subPath: helmfile.yaml
   mimir-gateway: |
     resources:
       # ClusterMesh global Service shim: no selector, no local endpoints. Cilium adds the
