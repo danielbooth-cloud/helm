@@ -8,6 +8,9 @@ matchLabels:
   {{- if .clustermesh }}
   bootstrap.projectsveltos.io/clustermesh: "true"
   {{- end }}
+  {{- if .hostOnly }}
+  bootstrap.projectsveltos.io/virtual: "false"
+  {{- end }}
 matchExpressions:
   - key: bootstrap.projectsveltos.io/cluster
     operator: Exists
@@ -16,6 +19,12 @@ matchExpressions:
     operator: NotIn
     values:
       - {{ .root.Values.managementCluster.role | default "mgmt" | quote }}
+  {{- end }}
+  {{- if .excludeVirtual }}
+  - key: bootstrap.projectsveltos.io/virtual
+    operator: NotIn
+    values:
+      - "true"
   {{- end }}
 {{- end -}}
 

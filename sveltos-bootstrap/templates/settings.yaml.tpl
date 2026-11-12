@@ -32,6 +32,11 @@ data:
   cloudflareSecretField: {{ .Values.settings.cloudflareSecretField | quote }}
   gatewayName: {{ .Values.settings.gatewayName | quote }}
   gatewayNamespace: {{ default .Values.namespaces.gateway .Values.settings.gatewayNamespace | quote }}
+  clusterApiCoreNamespace: {{ .Values.clusterApi.coreNamespace | quote }}
+  clusterApiVclusterNamespace: {{ .Values.clusterApi.vclusterNamespace | quote }}
+  clusterApiVersion: {{ .Values.versions.clusterApi | quote }}
+  clusterApiVclusterVersion: {{ .Values.versions.clusterApiVcluster | quote }}
+  vclusterApiServiceLabels: {{ .Values.vclusterRegistration.apiServiceLabels | toJson | quote }}
 ---
 apiVersion: v1
 kind: Secret

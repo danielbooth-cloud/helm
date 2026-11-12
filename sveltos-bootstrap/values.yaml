@@ -4,9 +4,8 @@ managementCluster:
   name: mgmt
   # The SveltosCluster's registration cluster label, which the profiles select on.
   cluster: ""
-  # The role label (bootstrap.projectsveltos.io/role) the management cluster carries.
-  # Terraform sets it on the management SveltosCluster; mgmt-only profiles (argocd-mgr)
-  # select on it and workload profiles exclude it, so no cluster names appear in templates.
+  # The bootstrap.projectsveltos.io/role label the publisher sets on the management SveltosCluster;
+  # mgmt-only profiles select it and workload-only profiles exclude it.
   role: mgmt
 sharedClusterConfig: {}
 clusterConfig: {}
@@ -55,6 +54,22 @@ sveltosRegistration:
 # Argo CD on the management cluster only; workload clusters get the registration profile.
 argocd:
   enabled: false
+
+# Cluster API with the vCluster infrastructure provider, on every non-virtual cluster.
+clusterApi:
+  operatorNamespace: capi-operator-system
+  coreNamespace: capi-system
+  vclusterNamespace: vcluster-infrastructure-system
+
+# Registers CAPI-provisioned vClusters as virtual SveltosClusters; see templates/vcluster-registration.yaml.tpl.
+vclusterRegistration:
+  # The vCluster chart's API Service, named after the CAPI Cluster in that Cluster's namespace.
+  apiPortName: https
+  apiPort: 443
+  apiTargetPort: 8443
+  # Kyverno marks matching host-side Services Cluster Mesh global so Ops reaches the API.
+  apiServiceLabels:
+    app: vcluster
 
 
 namespaces:
@@ -125,6 +140,9 @@ versions:
   cephCsi: 3.18.1
   onePasswordConnect: 2.4.3
   argoCd: 10.17.2
+  clusterApiOperator: 0.30.0
+  clusterApi: v1.14.4
+  clusterApiVcluster: v0.2.2
 
 # These are Sveltos value documents, deliberately emitted without Helm tpl.
 applicationValues:
@@ -762,6 +780,65 @@ applicationValues:
         prometheus.io/path: /metrics
         prometheus.io/port: "8078"
         prometheus.io/scrape: "true"
+  cluster-api-operator: |
+    # Providers come from the cluster-api-providers release; hook-created ones are recreated on every upgrade.
+    enableHelmHook: false
+  cluster-api-providers: |
+    {{- $settings := (getResource "BootstrapSettings").data }}
+    resources:
+      - apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: {{ $settings.clusterApiCoreNamespace | quote }}
+      - apiVersion: operator.cluster.x-k8s.io/v1alpha2
+        kind: CoreProvider
+        metadata:
+          name: cluster-api
+          namespace: {{ $settings.clusterApiCoreNamespace | quote }}
+        spec:
+          version: {{ $settings.clusterApiVersion | quote }}
+      - apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: {{ $settings.clusterApiVclusterNamespace | quote }}
+      - apiVersion: operator.cluster.x-k8s.io/v1alpha2
+        kind: InfrastructureProvider
+        metadata:
+          name: vcluster
+          namespace: {{ $settings.clusterApiVclusterNamespace | quote }}
+        spec:
+          version: {{ $settings.clusterApiVclusterVersion | quote }}
+      # Global on the host so Ops' same-named shim Service gets the vCluster API as its only backend.
+      - apiVersion: kyverno.io/v1
+        kind: ClusterPolicy
+        metadata:
+          name: vcluster-api-global-service
+        spec:
+          background: false
+          rules:
+            - name: cluster-mesh-global
+              match:
+                any:
+                  - resources:
+                      kinds:
+                        - Service
+                      selector:
+                        matchLabels: {{ $settings.vclusterApiServiceLabels }}
+              exclude:
+                any:
+                  # Services a vCluster syncs out of its tenants carry this label.
+                  - resources:
+                      kinds:
+                        - Service
+                      selector:
+                        matchExpressions:
+                          - key: vcluster.loft.sh/managed-by
+                            operator: Exists
+              mutate:
+                patchStrategicMerge:
+                  metadata:
+                    annotations:
+                      service.cilium.io/global: "true"
   kyverno: |
     # Chart defaults for now; add policies or tuning here as they earn their keep.
   descheduler: |

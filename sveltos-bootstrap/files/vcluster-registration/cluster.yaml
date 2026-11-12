@@ -1,0 +1,40 @@
+{{- if not $onManagement }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $namespace | quote }}
+---
+# Selectorless, so the host's same-named global Service supplies the only backend.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $capiCluster | quote }}
+  namespace: {{ $namespace | quote }}
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "false"
+spec:
+  type: ClusterIP
+  ports:
+    - name: {{ $config.apiPortName | quote }}
+      port: {{ $config.apiPort }}
+      targetPort: {{ $config.apiTargetPort }}
+      protocol: TCP
+---
+{{- end }}
+apiVersion: lib.projectsveltos.io/v1beta1
+kind: SveltosCluster
+metadata:
+  name: {{ $name | quote }}
+  namespace: {{ $config.registrationNamespace | quote }}
+  labels:
+    bootstrap.projectsveltos.io/enabled: "true"
+    bootstrap.projectsveltos.io/cluster: {{ $name | quote }}
+    bootstrap.projectsveltos.io/virtual: "true"
+    bootstrap.projectsveltos.io/clustermesh: "false"
+    bootstrap.projectsveltos.io/host: {{ $host | quote }}
+  annotations:
+    bootstrap.projectsveltos.io/argocd-server: {{ $server | quote }}
+spec:
+  kubeconfigName: {{ printf "%s%s" $name $config.kubeconfigSecretSuffix | quote }}
+  kubeconfigKeyName: kubeconfig
