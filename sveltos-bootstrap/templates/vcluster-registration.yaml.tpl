@@ -20,17 +20,20 @@ spec:
     - group: ""
       version: v1
       kind: Secret
-      labelFilters:
-        - key: cluster.x-k8s.io/cluster-name
-          operation: Has
-      # Only CAPI's own <cluster>-kubeconfig Secret, not other per-cluster Secrets.
+      # CAPI's <cluster>-kubeconfig Secret with its single "value" key; the vCluster provider
+      # writes it as an unlabelled Opaque Secret, so the name and shape are all there is.
       evaluate: |
         function evaluate()
           local hs = {matching = false}
-          local cluster = obj.metadata.labels["cluster.x-k8s.io/cluster-name"]
-          if obj.type == "cluster.x-k8s.io/secret" and obj.metadata.name == cluster .. "-kubeconfig" then
-            hs.matching = true
+          if obj.data == nil or obj.data.value == nil or string.sub(obj.metadata.name, -11) ~= "-kubeconfig" then
+            return hs
           end
+          for key, _ in pairs(obj.data) do
+            if key ~= "value" then
+              return hs
+            end
+          end
+          hs.matching = true
           return hs
         end
 ---

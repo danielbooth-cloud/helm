@@ -1,6 +1,6 @@
 {{- /* Rendered by the event-manager: .Cluster is the host cluster, .Resource the vCluster's CAPI kubeconfig Secret. */ -}}
 {{- $host := index .Cluster.metadata.labels "bootstrap.projectsveltos.io/cluster" }}
-{{- $capiCluster := index .Resource.metadata.labels "cluster.x-k8s.io/cluster-name" }}
+{{- $capiCluster := trimSuffix "-kubeconfig" .Resource.metadata.name }}
 {{- $namespace := .Resource.metadata.namespace }}
 {{- /* Registered under the CAPI Cluster name, which must be unique fleet-wide: it names the
 SveltosCluster, the Argo CD cluster and the mesh global Service. */ -}}
