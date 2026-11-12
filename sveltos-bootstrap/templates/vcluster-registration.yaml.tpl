@@ -49,13 +49,6 @@ spec:
   eventSourceName: {{ printf "%s-vcluster-registrations" .Release.Name | quote }}
   # One ClusterProfile per vCluster; deleting the vCluster withdraws its registration.
   oneForEvent: true
-  templateResourceRefs:
-    - identifier: HostConfig
-      resource:
-        apiVersion: v1
-        kind: ConfigMap
-        namespace: {{ .Values.registrationNamespace | quote }}
-        name: {{ "{{ .Cluster.metadata.namespace }}-{{ .Cluster.metadata.name }}-bootstrap-config" | quote }}
   policyRefs:
     - name: {{ printf "%s-vcluster-registration" .Release.Name | quote }}
       namespace: {{ .Release.Namespace | quote }}
@@ -90,7 +83,7 @@ type: addons.projectsveltos.io/cluster-profile
 data:
   kubeconfig.yaml: {{ printf "%s%s" $preamble (.Files.Get "files/vcluster-registration/kubeconfig.yaml") | b64enc | quote }}
 ---
-# Instantiated per event, then templated again on Ops to merge in the host's ClusterConfig.
+# The profiles virtual clusters get read only clusterName from ClusterConfig.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -98,7 +91,6 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
   annotations:
     projectsveltos.io/instantiate: ok
-    projectsveltos.io/template: ok
 data:
   config.yaml: |
     {{- $preamble | nindent 4 }}

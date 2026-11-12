@@ -114,6 +114,8 @@ settings:
   connectCredentialsSecretName: op-credentials
   # ClusterConfig supplies the hosts and port; this is the alias's name.
   s3ServiceName: s3
+  # Each cluster's hubble-relay-mesh NodePort; the management cluster's shims dial it.
+  hubbleRelayNodePort: 32424
   issuerName: zerossl-issuer
   eabSecretName: zerossl-eab-secret
   acmeAccountSecretName: zerossl-production
@@ -322,7 +324,7 @@ applicationValues:
             - name: grpc
               port: 80
               targetPort: grpc
-              nodePort: 32424
+              nodePort: {{ (getResource "BootstrapSettings").data.hubbleRelayNodePort }}
   cilium-mesh-certificates: |
     {{- $config := (getResource "ClusterConfig").data -}}
     {{- $settings := (getResource "BootstrapSettings").data -}}

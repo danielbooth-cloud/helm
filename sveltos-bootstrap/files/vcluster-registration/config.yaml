@@ -1,10 +1,7 @@
-{{- /* Escaped actions are left for the addon-controller, which resolves HostConfig on Ops. */ -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ printf "%s-%s-bootstrap-config" $config.registrationNamespace $name | quote }}
   namespace: {{ $config.registrationNamespace | quote }}
 data:
-  {{ "{{-" }} range $key, $value := merge (dict "clusterName" {{ $name | quote }}) (getResource "HostConfig").data {{ "}}" }}
-  {{ "{{" }} $key {{ "}}" }}: {{ "{{" }} $value | toString | quote {{ "}}" }}
-  {{ "{{-" }} end {{ "}}" }}
+  clusterName: {{ $name | quote }}

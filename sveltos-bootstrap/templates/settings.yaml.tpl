@@ -22,6 +22,7 @@ data:
   connectTokenSecretName: {{ .Values.settings.connectTokenSecretName | quote }}
   connectCredentialsSecretName: {{ .Values.settings.connectCredentialsSecretName | quote }}
   s3ServiceName: {{ .Values.settings.s3ServiceName | quote }}
+  hubbleRelayNodePort: {{ .Values.settings.hubbleRelayNodePort | quote }}
   issuerName: {{ .Values.settings.issuerName | quote }}
   eabSecretName: {{ .Values.settings.eabSecretName | quote }}
   acmeAccountSecretName: {{ .Values.settings.acmeAccountSecretName | quote }}
