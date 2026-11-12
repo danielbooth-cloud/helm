@@ -87,6 +87,10 @@ namespaces:
   kubeSystem: kube-system
   argocd: argocd
 
+# Namespaces virtual clusters get; every other bootstrap service is shared from the host.
+virtualNamespaces:
+  - reloader
+
 namespaceLabels:
   monitoring:
     gateway-access: "true"
