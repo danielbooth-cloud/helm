@@ -895,7 +895,60 @@ applicationValues:
   kyverno: |
     # Chart defaults for now; add policies or tuning here as they earn their keep.
   descheduler: |
-    # Chart defaults for now; add policy strategies here as they earn their keep.
+    # The chart's default profile plus an opt-out: pods or namespaces labelled
+    # bootstrap.projectsveltos.io/descheduler=false are never evicted. Lists replace, so the whole profile is restated.
+    deschedulerPolicy:
+      profiles:
+        - name: default
+          pluginConfig:
+            - name: DefaultEvictor
+              args:
+                labelSelector: &descheduler-opt-out
+                  matchExpressions:
+                    - key: bootstrap.projectsveltos.io/descheduler
+                      operator: NotIn
+                      values:
+                        - "false"
+                namespaceLabelSelector: *descheduler-opt-out
+                podProtections:
+                  defaultDisabled:
+                    - PodsWithLocalStorage
+                  extraEnabled:
+                    - PodsWithPVC
+            - name: RemoveDuplicates
+            - name: RemovePodsHavingTooManyRestarts
+              args:
+                podRestartThreshold: 100
+                includingInitContainers: true
+            - name: RemovePodsViolatingNodeAffinity
+              args:
+                nodeAffinityType:
+                  - requiredDuringSchedulingIgnoredDuringExecution
+            - name: RemovePodsViolatingNodeTaints
+            - name: RemovePodsViolatingInterPodAntiAffinity
+            - name: RemovePodsViolatingTopologySpreadConstraint
+            - name: LowNodeUtilization
+              args:
+                thresholds:
+                  cpu: 20
+                  memory: 20
+                  pods: 20
+                targetThresholds:
+                  cpu: 50
+                  memory: 50
+                  pods: 50
+          plugins:
+            balance:
+              enabled:
+                - RemoveDuplicates
+                - RemovePodsViolatingTopologySpreadConstraint
+                - LowNodeUtilization
+            deschedule:
+              enabled:
+                - RemovePodsHavingTooManyRestarts
+                - RemovePodsViolatingNodeTaints
+                - RemovePodsViolatingNodeAffinity
+                - RemovePodsViolatingInterPodAntiAffinity
   gateway-route-rgd: |
     resources:
       - apiVersion: kro.run/v1alpha1
