@@ -67,21 +67,10 @@ data:
       target:
         name: {{ "{{ (getResource \"ClusterConfig\").data.argocdRepoSecretName }}" }}
         template:
-          engineVersion: v2
           metadata:
             labels:
               # Argo CD discovers repository credentials by this label, not the Secret name.
               argocd.argoproj.io/secret-type: repository
-          data:
-            type: git
-            name: {{ "{{ (getResource \"ClusterConfig\").data.argocdRepoName }}" }}
-            url: {{ "{{ (getResource \"ClusterConfig\").data.argocdRepoUrl }}" }}
-            sshPrivateKey: |-
-              {{ "{{- $key := .sshPrivateKey | trim -}}" }}
-              {{ "{{- $header := regexFind \"-----BEGIN OPENSSH PRIVATE KEY-----\" $key -}}" }}
-              {{ "{{- $footer := regexFind \"-----END OPENSSH PRIVATE KEY-----\" $key -}}" }}
-              {{ "{{- $body := $key | trimPrefix $header | trimSuffix $footer -}}" }}
-              {{ "{{- printf \"%s\\n%s\\n%s\\n\" $header (regexReplaceAll \"\\\\s+\" $body \"\") $footer -}}" }}
       data:
         - secretKey: sshPrivateKey
           remoteRef:
