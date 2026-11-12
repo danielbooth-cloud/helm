@@ -114,8 +114,6 @@ settings:
   connectCredentialsSecretName: op-credentials
   # ClusterConfig supplies the hosts and port; this is the alias's name.
   s3ServiceName: s3
-  # Each cluster's hubble-relay-mesh NodePort; the management cluster's shims dial it.
-  hubbleRelayNodePort: 32424
   issuerName: zerossl-issuer
   eabSecretName: zerossl-eab-secret
   acmeAccountSecretName: zerossl-production
@@ -309,22 +307,25 @@ applicationValues:
         service.cilium.io/global: "true"
   hubble-relay: |
     resources:
-      # The central UI on the management cluster reaches each cluster's relay over the
-      # OVN peer, so no tailnet proxy is involved.
+      # Cluster Mesh global Service: each cluster advertises its own relay under a name of
+      # its own (one shared name would merge every cluster's relays). The central Hubble UI
+      # on the management cluster dials a selectorless shim of the same name (GitOps
+      # system/hubble-proxy), so no node IPs or NodePorts are involved.
       - apiVersion: v1
         kind: Service
         metadata:
-          name: hubble-relay-mesh
+          name: {{ printf "hubble-relay-%s" (getResource "ClusterConfig").data.clusterName | quote }}
           namespace: {{ (getResource "BootstrapSettings").data.kubeSystemNamespace | quote }}
+          annotations:
+            service.cilium.io/global: "true"
         spec:
-          type: NodePort
           selector:
             k8s-app: hubble-relay
           ports:
             - name: grpc
               port: 80
               targetPort: grpc
-              nodePort: {{ (getResource "BootstrapSettings").data.hubbleRelayNodePort }}
+              protocol: TCP
   cilium-mesh-certificates: |
     {{- $config := (getResource "ClusterConfig").data -}}
     {{- $settings := (getResource "BootstrapSettings").data -}}

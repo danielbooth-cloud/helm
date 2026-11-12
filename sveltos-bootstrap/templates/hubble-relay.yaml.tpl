@@ -1,6 +1,6 @@
 {{- include "bootstrap.valuesSecret" (dict "root" . "release" "hubble-relay") }}
 ---
-# Ops' central Hubble UI dials each cluster's relay through this tailnet Service.
+# Advertises the cluster's Hubble relay over Cluster Mesh for the central Hubble UI on ops.
 apiVersion: config.projectsveltos.io/v1beta1
 kind: ClusterProfile
 metadata:
