@@ -143,6 +143,8 @@ versions:
   clusterApiOperator: 0.30.0
   clusterApi: v1.14.4
   clusterApiVcluster: v0.2.2
+  # Same upstream image the provider manifest used, from its current registry.
+  clusterApiVclusterRbacProxy: quay.io/brancz/kube-rbac-proxy:v0.8.0
 
 # These are Sveltos value documents, deliberately emitted without Helm tpl.
 applicationValues:
@@ -783,6 +785,18 @@ applicationValues:
   cluster-api-operator: |
     # Providers come from the cluster-api-providers release; hook-created ones are recreated on every upgrade.
     enableHelmHook: false
+    # The chart tolerates control planes; keep the operator on workers.
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: DoesNotExist
+                - key: kubernetes.io/os
+                  operator: In
+                  values:
+                    - linux
   cluster-api-providers: |
     {{- $settings := (getResource "BootstrapSettings").data }}
     resources:
@@ -797,6 +811,15 @@ applicationValues:
           namespace: {{ $settings.clusterApiCoreNamespace | quote }}
         spec:
           version: {{ $settings.clusterApiVersion | quote }}
+          # Provider manifests tolerate control planes; keep controllers on workers.
+          deployment:
+            affinity: &workers-only
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: node-role.kubernetes.io/control-plane
+                          operator: DoesNotExist
       - apiVersion: v1
         kind: Namespace
         metadata:
@@ -808,37 +831,40 @@ applicationValues:
           namespace: {{ $settings.clusterApiVclusterNamespace | quote }}
         spec:
           version: {{ $settings.clusterApiVclusterVersion | quote }}
+          deployment:
+            affinity: *workers-only
+            containers:
+              # The release manifest pins gcr.io/kubebuilder/kube-rbac-proxy, which no longer exists.
+              - name: kube-rbac-proxy
+                imageUrl: {{ $settings.clusterApiVclusterRbacProxyImage | quote }}
       # Global on the host so Ops' same-named shim Service gets the vCluster API as its only backend.
-      - apiVersion: kyverno.io/v1
-        kind: ClusterPolicy
+      - apiVersion: policies.kyverno.io/v1
+        kind: MutatingPolicy
         metadata:
           name: vcluster-api-global-service
         spec:
-          background: false
-          rules:
-            - name: cluster-mesh-global
-              match:
-                any:
-                  - resources:
-                      kinds:
-                        - Service
-                      selector:
-                        matchLabels: {{ $settings.vclusterApiServiceLabels }}
-              exclude:
-                any:
-                  # Services a vCluster syncs out of its tenants carry this label.
-                  - resources:
-                      kinds:
-                        - Service
-                      selector:
-                        matchExpressions:
-                          - key: vcluster.loft.sh/managed-by
-                            operator: Exists
-              mutate:
-                patchStrategicMerge:
-                  metadata:
-                    annotations:
-                      service.cilium.io/global: "true"
+          matchConstraints:
+            resourceRules:
+              - apiGroups:
+                  - ""
+                apiVersions:
+                  - v1
+                operations:
+                  - CREATE
+                  - UPDATE
+                resources:
+                  - services
+            objectSelector:
+              matchLabels: {{ $settings.vclusterApiServiceLabels }}
+              matchExpressions:
+                # Services a vCluster syncs out of its tenants carry this label.
+                - key: vcluster.loft.sh/managed-by
+                  operator: DoesNotExist
+          mutations:
+            - patchType: ApplyConfiguration
+              applyConfiguration:
+                expression: >-
+                  Object{metadata: Object.metadata{annotations: {"service.cilium.io/global": "true"}}}
   kyverno: |
     # Chart defaults for now; add policies or tuning here as they earn their keep.
   descheduler: |

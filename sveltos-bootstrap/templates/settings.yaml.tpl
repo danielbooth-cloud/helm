@@ -36,6 +36,7 @@ data:
   clusterApiVclusterNamespace: {{ .Values.clusterApi.vclusterNamespace | quote }}
   clusterApiVersion: {{ .Values.versions.clusterApi | quote }}
   clusterApiVclusterVersion: {{ .Values.versions.clusterApiVcluster | quote }}
+  clusterApiVclusterRbacProxyImage: {{ .Values.versions.clusterApiVclusterRbacProxy | quote }}
   vclusterApiServiceLabels: {{ .Values.vclusterRegistration.apiServiceLabels | toJson | quote }}
 ---
 apiVersion: v1
