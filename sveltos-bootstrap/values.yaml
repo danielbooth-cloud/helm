@@ -176,9 +176,11 @@ applicationValues:
           g, {{ (getResource "ClusterConfig").data.argocdAdminIdentity }}, role:admin
         scopes: '[email]'
       # Replaces the plugin.yaml baked into the camptocamp helmfile image (mounted below).
-      # Argo CD hands each Application's plugin.env to the plugin as ARGOCD_ENV_<name>, but
-      # camptocamp's script only reads the unprefixed HELMFILE_GLOBAL_OPTIONS, so this
-      # re-exports that one variable and nothing else.
+      # - Argo CD hands each Application's plugin.env to the plugin as ARGOCD_ENV_<name>, but
+      #   camptocamp's script only reads the unprefixed HELMFILE_GLOBAL_OPTIONS, so this
+      #   re-exports that one variable and nothing else.
+      # - The script passes --namespace $ARGOCD_APP_NAMESPACE, which overrides every release's
+      #   namespace; unsetting it keeps the namespaces the helmfiles declare.
       cmp:
         create: true
         plugins:
@@ -186,11 +188,11 @@ applicationValues:
             init:
               command: [bash, -c]
               args:
-                - export HELMFILE_GLOBAL_OPTIONS="${ARGOCD_ENV_HELMFILE_GLOBAL_OPTIONS:-}"; exec /usr/local/bin/argocd-helmfile init
+                - export HELMFILE_GLOBAL_OPTIONS="${ARGOCD_ENV_HELMFILE_GLOBAL_OPTIONS:-}"; unset ARGOCD_APP_NAMESPACE; exec /usr/local/bin/argocd-helmfile init
             generate:
               command: [bash, -c]
               args:
-                - export HELMFILE_GLOBAL_OPTIONS="${ARGOCD_ENV_HELMFILE_GLOBAL_OPTIONS:-}"; exec /usr/local/bin/argocd-helmfile generate
+                - export HELMFILE_GLOBAL_OPTIONS="${ARGOCD_ENV_HELMFILE_GLOBAL_OPTIONS:-}"; unset ARGOCD_APP_NAMESPACE; exec /usr/local/bin/argocd-helmfile generate
             discover:
               fileName: helmfile.yaml
     server:
@@ -223,6 +225,7 @@ applicationValues:
             - name: HELMFILE_SKIP_INSECURE_TEMPLATE_FUNCTIONS
               value: "true"
             # Rendered helmfiles declare their own release namespaces; the Application's destination must not override them.
+            # Read by travisghansen's plugin only; with camptocamp, configs.cmp above does this.
             - name: HELMFILE_USE_CONTEXT_NAMESPACE
               value: "true"
           volumeMounts:

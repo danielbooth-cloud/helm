@@ -66,10 +66,17 @@ data:
       target:
         name: {{ "{{ (getResource \"ClusterConfig\").data.argocdRepoSecretName }}" }}
         template:
+          # Merge keeps the fetched sshPrivateKey, so no ESO expressions clash with Sveltos templating.
+          mergePolicy: Merge
           metadata:
             labels:
               # Argo CD discovers repository credentials by this label, not the Secret name.
               argocd.argoproj.io/secret-type: repository
+          # Argo CD matches credentials to an Application by url; without it git falls back to an SSH agent.
+          data:
+            type: git
+            name: {{ "{{ (getResource \"ClusterConfig\").data.argocdRepoName }}" }}
+            url: {{ "{{ (getResource \"ClusterConfig\").data.argocdRepoUrl }}" }}
       data:
         - secretKey: sshPrivateKey
           remoteRef:
