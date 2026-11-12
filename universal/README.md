@@ -1,6 +1,6 @@
 # universal
 
-![Version: 0.1.24](https://img.shields.io/badge/Version-0.1.25-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.0.0](https://img.shields.io/badge/AppVersion-1.0.0-informational?style=flat-square)
+![Version: 0.2.0](https://img.shields.io/badge/Version-0.2.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.0.0](https://img.shields.io/badge/AppVersion-1.0.0-informational?style=flat-square)
 
 A universal master Helm chart for deploying applications to Kubernetes
 
@@ -15,9 +15,13 @@ A universal master Helm chart for deploying applications to Kubernetes
 | autoscaling.minReplicas | int | `1` |  |
 | autoscaling.targetCPUUtilizationPercentage | int | `80` |  |
 | certificates | list | `[]` |  |
-| config | list | `[]` |  |
+| clusterRole | list | `[]` |  |
+| clusterRoleBinding | object | `{}` |  |
+| config | object | `{}` |  |
 | configMountPath | string | `""` |  |
+| configSubPath | bool | `false` |  |
 | containerSecurityContext | object | `{}` |  |
+| crd | object | `{}` |  |
 | cronjob.annotations | object | `{}` |  |
 | cronjob.backoffLimit | int | `0` |  |
 | cronjob.concurrencyPolicy | string | `"Forbid"` |  |
@@ -55,6 +59,7 @@ A universal master Helm chart for deploying applications to Kubernetes
 | persistence.data.mountPath | string | `"/data/"` |  |
 | persistence.data.size | string | `"10Gi"` |  |
 | persistence.data.storageClass | string | `"default"` |  |
+| persistence.data.useVolumeClaimTemplate | bool | `true` |  |
 | persistence.logs.accessMode | string | `"ReadWriteOnce"` |  |
 | persistence.logs.annotations | object | `{}` |  |
 | persistence.logs.claimName | string | `nil` |  |
@@ -68,24 +73,31 @@ A universal master Helm chart for deploying applications to Kubernetes
 | podDisruptionBudget.minAvailable | int | `2` |  |
 | podLabels | object | `{}` |  |
 | podSecurityContext | object | `{}` |  |
+| ports | list | `[]` |  |
 | readinessProbe | object | `{}` |  |
 | reloader.enabled | bool | `false` |  |
 | replicaCount | int | `1` |  |
 | resources | object | `{}` |  |
+| role | object | `{}` |  |
+| roleBinding | object | `{}` |  |
+| runtimeClassName | object | `{}` |  |
+| secretBackend | object | `{}` |  |
 | secretVolumes | object | `{}` |  |
 | securityContext | object | `{}` |  |
 | service.annotations | list | `[]` |  |
+| service.loadBalancerClass | string | `""` |  |
 | service.loadBalancerIP | string | `""` |  |
 | service.loadBalancerSourceRanges | list | `[]` |  |
-| service.ports.http.port | string | `"http"` |  |
-| service.ports.http.protocol | string | `"TCP"` |  |
-| service.ports.http.targetPort | string | `"http"` |  |
+| service.ports | object | `{}` |  |
 | service.type | string | `"ClusterIP"` |  |
 | serviceAccount.annotations | object | `{}` |  |
 | serviceAccount.automount | bool | `true` |  |
 | serviceAccount.create | bool | `false` |  |
 | serviceAccount.name | string | `""` |  |
-| setupScripts | list | `[]` |  |
+| setupScripts | object | `{}` |  |
+| sidecars | list | `[]` |  |
+| statefulset.serviceName | string | `""` |  |
+| strategy | object | `{}` |  |
 | tolerations | list | `[]` |  |
 | topologySpreadConstraints | list | `[]` |  |
 

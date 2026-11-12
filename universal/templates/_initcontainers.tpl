@@ -2,7 +2,10 @@
 Init containers shared by the deployment, statefulset and cronjob templates.
 
 Each entry in .Values.initContainers accepts name, image{repository,tag,pullPolicy},
-command, args, envs, envFrom, volumeMounts, securityContext and resources. The
+command, args, envs, envFrom, volumeMounts, securityContext, resources, ports,
+probes (startupProbe, livenessProbe, readinessProbe) and restartPolicy. Setting
+restartPolicy: Always makes the entry a native sidecar (Kubernetes 1.29+), which
+is the safe way to run a sidecar next to a cronjob. The
 persistence volumes are mounted automatically so a prep step can reach the data dir;
 extra mounts come from the entry's own volumeMounts plus the pod-level extraVolumes.
 */}}
@@ -25,6 +28,21 @@ extra mounts come from the entry's own volumeMounts plus the pod-level extraVolu
   {{- end }}
   {{- with .envFrom }}
   envFrom:{{ toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .restartPolicy }}
+  restartPolicy: {{ . }}
+  {{- end }}
+  {{- with .ports }}
+  ports:{{ toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .startupProbe }}
+  startupProbe:{{ toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .livenessProbe }}
+  livenessProbe:{{ toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .readinessProbe }}
+  readinessProbe:{{ toYaml . | nindent 4 }}
   {{- end }}
   {{- with .securityContext }}
   securityContext:{{ toYaml . | nindent 4 }}

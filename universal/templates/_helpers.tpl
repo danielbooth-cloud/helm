@@ -60,3 +60,41 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+Main-container mounts for the rendered config ConfigMap.
+Nothing is mounted when configMountPath is empty, so a ConfigMap can be consumed
+only by init containers or sidecars. With configSubPath every key (config and
+certificates) is mounted as its own file under configMountPath, which leaves the
+rest of that directory writable and untouched.
+*/}}
+{{- define "universal.configVolumeMounts" -}}
+{{- if and .Values.config .Values.configMountPath }}
+{{- if .Values.configSubPath }}
+{{- $keys := keys .Values.config }}
+{{- if kindIs "map" .Values.certificates }}
+{{- $keys = concat $keys (keys .Values.certificates) }}
+{{- end }}
+{{- range ($keys | sortAlpha | uniq) }}
+- name: {{ include "universal.name" $ }}-config
+  mountPath: {{ printf "%s/%s" (trimSuffix "/" $.Values.configMountPath) . }}
+  subPath: {{ . }}
+{{- end }}
+{{- else }}
+- name: {{ include "universal.name" . }}-config
+  mountPath: {{ .Values.configMountPath }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Sidecar containers: full container specs appended after the main container of a
+deployment or statefulset. Rendered through tpl so they can reference the release,
+for example {{ include "universal.fullname" . }}. Sidecars mount pod volumes by
+name (persistence, extraVolumes, secretVolumes or the config volume).
+*/}}
+{{- define "universal.sidecars" -}}
+{{- with .Values.sidecars }}
+{{- tpl (toYaml .) $ }}
+{{- end }}
+{{- end }}

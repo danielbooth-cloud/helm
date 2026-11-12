@@ -53,9 +53,8 @@ spec:
             resources:
               {{- toYaml .Values.resources | nindent 14 }}
             volumeMounts:
-            {{- if .Values.config }}
-              - name: {{ include "universal.name" . }}-config
-                mountPath: {{ .Values.configMountPath }}
+            {{- with (include "universal.configVolumeMounts" . | trim) }}
+              {{- . | nindent 14 }}
             {{- end }}
             {{- if .Values.persistence.data.enabled }}
               - name: {{ include "universal.name" . }}-data

@@ -8,6 +8,16 @@ applicationType: deployment
 # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
 replicaCount: 1
 
+# Deployment update strategy, rendered as-is. Use Recreate for single-replica apps on ReadWriteOnce volumes.
+strategy: {}
+  # type: Recreate
+
+# StatefulSet-only settings.
+statefulset:
+  # Governing Service for stable pod DNS (pod-0.<serviceName>). Rendered through tpl.
+  # Left empty by default because spec.serviceName is immutable on existing StatefulSets.
+  serviceName: ""
+
 # This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
 image:
   repository: bash
@@ -29,15 +39,21 @@ fullnameOverride: ""
 reloader:
   enabled: false
 
+# Where the main container mounts the "<fullname>-config" ConfigMap built from config (and certificates).
+# Leave empty to create the ConfigMap volume without mounting it in the main container, e.g. when only
+# an init container or a sidecar reads it.
 configMountPath: ""
+# Mount each config/certificates key as its own file (subPath) at configMountPath/<key> instead of
+# mounting the whole ConfigMap over the directory, so the rest of the directory stays writable.
+configSubPath: false
 
-config: []
+config: {}
   # config.yml : |-
   #   mock config
 
 certificates: []
 
-setupScripts: []
+setupScripts: {}
   # setup.sh: |
   #   #!/bin/bash
   #   # This script is executed every time the pod is started.
@@ -56,10 +72,29 @@ initContainers: []
   #   securityContext:
   #     runAsUser: 0
 
+# Main container ports (deployment and statefulset).
 ports: []
 #  - containerPort: 9782
 #    name: metrics
 #    protocol: TCP
+
+# sidecars are extra containers run next to the main container of a deployment or statefulset.
+# Each entry is a full Kubernetes container spec, rendered through tpl. Sidecars mount pod volumes
+# by name: "<name>-data"/"<name>-logs" (persistence), "<name>-config" (config), secretVolumes and
+# extraVolumes. For cronjobs (or start-ordering) use a native sidecar instead: an initContainers
+# entry with restartPolicy: Always.
+sidecars: []
+  # - name: oauth2-proxy
+  #   image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+  #   args:
+  #     - --http-address=0.0.0.0:4180
+  #     - --upstream=http://localhost:8080
+  #   envFrom:
+  #     - secretRef:
+  #         name: '{{ include "universal.fullname" . }}-oauth2-proxy'
+  #   ports:
+  #     - name: proxy
+  #       containerPort: 4180
 
 persistence:
   data:
@@ -144,7 +179,19 @@ service:
   # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
   type: ClusterIP
   # This sets the ports more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports
+  # Map of port name -> {port, targetPort, protocol, nodePort (optional, NodePort/LoadBalancer only)}.
   ports: {}
+  #   http:
+  #     port: 80
+  #     targetPort: http
+  #     protocol: TCP
+  # Backend port for ingress paths without a servicePort (number or port name).
+  # Falls back to the first service.ports name when unset.
+  # port: 80
+  # StatefulSet Services are headless (clusterIP: None) unless this is set to false.
+  # headless: true
+  # Optional load balancer implementation, e.g. tailscale.
+  loadBalancerClass: ""
   annotations: []
   loadBalancerIP: ""
   loadBalancerSourceRanges: []
@@ -161,6 +208,9 @@ ingress:
       paths:
         - path: /
           pathType: ImplementationSpecific
+          # Optional backend port for this path: a number or a service.ports name.
+          # Defaults to service.port, then the first service.ports name.
+          # servicePort: http
   tls: []
   #  - secretName: chart-example-tls
   #    hosts:

@@ -33,11 +33,20 @@ spec:
             {{- with .pathType }}
             pathType: {{ . }}
             {{- end }}
+            {{- /* Backend port: the path's servicePort, else service.port, else the first service.ports name. Strings are port names. */}}
+            {{- $port := .servicePort | default $.Values.service.port }}
+            {{- if and (not $port) $.Values.service.ports }}
+            {{- $port = keys $.Values.service.ports | sortAlpha | first }}
+            {{- end }}
             backend:
               service:
                 name: {{ include "universal.fullname" $ }}
                 port:
-                  number: {{ $.Values.service.port }}
+                  {{- if and (kindIs "string" $port) (not (regexMatch "^[0-9]+$" $port)) }}
+                  name: {{ $port }}
+                  {{- else }}
+                  number: {{ $port }}
+                  {{- end }}
           {{- end }}
     {{- end }}
 {{- end }}

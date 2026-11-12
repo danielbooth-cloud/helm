@@ -11,6 +11,9 @@ metadata:
   {{- end }}
 spec:
   type: {{ .Values.service.type }}
+  {{- with .Values.service.loadBalancerClass }}
+  loadBalancerClass: {{ . }}
+  {{- end }}
   {{- if eq .Values.applicationType "deployment" }}
   {{- if .Values.service.loadBalancerIP }}
   loadBalancerIP: {{ .Values.service.loadBalancerIP }}
@@ -20,7 +23,8 @@ spec:
     {{ toYaml . | indent 4 }}
   {{- end }}
   {{- end }}
-  {{- if eq .Values.applicationType "statefulset" }}
+  {{- /* StatefulSets get a headless Service unless service.headless is explicitly false. */}}
+  {{- if and (eq .Values.applicationType "statefulset") (not (and (hasKey .Values.service "headless") (not .Values.service.headless))) }}
   clusterIP: "None"
   {{- end }}
   ports:
@@ -29,6 +33,9 @@ spec:
       protocol: {{ $value.protocol }}
       port: {{ $value.port }}
       targetPort: {{ $value.targetPort }}
+      {{- with $value.nodePort }}
+      nodePort: {{ . }}
+      {{- end }}
   {{- end }}
   selector:
     {{- include "universal.selectorLabels" . | nindent 4 }}

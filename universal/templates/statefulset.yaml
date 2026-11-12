@@ -13,6 +13,9 @@ spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
+  {{- with (.Values.statefulset).serviceName }}
+  serviceName: {{ tpl . $ }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "universal.selectorLabels" . | nindent 6 }}
@@ -71,9 +74,8 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
-          {{- if .Values.config }}
-            - name: {{ include "universal.name" . }}-config
-              mountPath: {{ .Values.configMountPath }}
+          {{- with (include "universal.configVolumeMounts" . | trim) }}
+            {{- . | nindent 12 }}
           {{- end }}
           {{- if .Values.persistence.data.enabled }}
             - name: {{ include "universal.name" . }}-data
@@ -103,6 +105,13 @@ spec:
           envFrom:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- with .Values.ports }}
+          ports:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- with (include "universal.sidecars" . | trim) }}
+        {{- . | nindent 8 }}
+        {{- end }}
       volumes:
         {{- if .Values.config }}
         - name: {{ include "universal.name" . }}-config
@@ -176,7 +185,9 @@ spec:
       spec:
         accessModes:
           - {{ .Values.persistence.data.accessMode }}
-        storageClassName: {{ .Values.persistence.data.storageClass }}
+        {{- with .Values.persistence.data.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
         resources:
           requests:
             storage: {{ .Values.persistence.data.size }}
