@@ -40,7 +40,7 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
 spec:
   sourceClusterSelector:
-    {{- include "bootstrap.clusterSelector" (dict "root" . "hostOnly" true) | nindent 4 }}
+    {{- include "bootstrap.clusterSelector" (dict "root" . "excludeVirtual" true) | nindent 4 }}
   destinationCluster:
     kind: SveltosCluster
     apiVersion: lib.projectsveltos.io/v1beta1

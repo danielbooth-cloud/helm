@@ -8,9 +8,6 @@ matchLabels:
   {{- if .clustermesh }}
   bootstrap.projectsveltos.io/clustermesh: "true"
   {{- end }}
-  {{- if .hostOnly }}
-  bootstrap.projectsveltos.io/virtual: "false"
-  {{- end }}
 matchExpressions:
   - key: bootstrap.projectsveltos.io/cluster
     operator: Exists
@@ -20,6 +17,7 @@ matchExpressions:
     values:
       - {{ .root.Values.managementCluster.role | default "mgmt" | quote }}
   {{- end }}
+  {{- /* Only vCluster registrations carry virtual "true"; unlabelled clusters are real. */}}
   {{- if .excludeVirtual }}
   - key: bootstrap.projectsveltos.io/virtual
     operator: NotIn
