@@ -7,19 +7,7 @@ kind: ClusterProfile
 metadata:
   name: {{ include "bootstrap.profileName" (dict "root" . "name" "argocd-cluster") | quote }}
 spec:
-  clusterSelector:
-    matchLabels:
-      bootstrap.projectsveltos.io/enabled: "true"
-    matchExpressions:
-      - key: bootstrap.projectsveltos.io/cluster
-        operator: Exists
-      - key: bootstrap.projectsveltos.io/argocd-role
-        operator: NotIn
-        values: [mgmt]
-  syncMode: ContinuousWithDriftDetection
-  stopMatchingBehavior: LeavePolicies
-  continueOnConflict: false
-  continueOnError: false
+  {{- include "bootstrap.commonSpec" (dict "root" . "excludeManagement" true) | nindent 2 }}
   dependsOn:
     - {{ include "bootstrap.profileName" (dict "root" . "name" "namespaces") | quote }}
   policyRefs:

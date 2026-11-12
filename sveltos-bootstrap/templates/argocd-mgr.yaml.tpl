@@ -2,15 +2,14 @@
 {{- include "bootstrap.valuesSecret" (dict "root" . "release" "argocd") }}
 ---
 # Argo CD lives on the management cluster only: it is the hub every other cluster is
-# registered into. The role label keeps the workload-side profile off this cluster.
+# registered into. The role label keeps the workload-side profiles off this cluster.
 apiVersion: config.projectsveltos.io/v1beta1
 kind: ClusterProfile
 metadata:
   name: {{ include "bootstrap.profileName" (dict "root" . "name" "argocd-mgr") | quote }}
 spec:
   clusterSelector:
-    matchLabels:
-      bootstrap.projectsveltos.io/argocd-role: mgmt
+    {{- include "bootstrap.mgmtSelector" . | nindent 4 }}
   syncMode: ContinuousWithDriftDetection
   stopMatchingBehavior: LeavePolicies
   continueOnConflict: false

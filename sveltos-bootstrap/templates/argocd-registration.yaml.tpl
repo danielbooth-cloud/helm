@@ -26,14 +26,7 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
 spec:
   sourceClusterSelector:
-    matchLabels:
-      bootstrap.projectsveltos.io/enabled: "true"
-    matchExpressions:
-      - key: bootstrap.projectsveltos.io/cluster
-        operator: Exists
-      - key: bootstrap.projectsveltos.io/argocd-role
-        operator: NotIn
-        values: [mgmt]
+    {{- include "bootstrap.clusterSelector" (dict "root" . "excludeManagement" true) | nindent 4 }}
   destinationCluster:
     kind: SveltosCluster
     apiVersion: lib.projectsveltos.io/v1beta1

@@ -4,6 +4,10 @@ managementCluster:
   name: mgmt
   # The SveltosCluster's registration cluster label, which the profiles select on.
   cluster: ""
+  # The role label (bootstrap.projectsveltos.io/role) the management cluster carries.
+  # Terraform sets it on the management SveltosCluster; mgmt-only profiles (argocd-mgr)
+  # select on it and workload profiles exclude it, so no cluster names appear in templates.
+  role: mgmt
 sharedClusterConfig: {}
 clusterConfig: {}
 managementResources: []

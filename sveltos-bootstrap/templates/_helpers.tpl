@@ -2,16 +2,31 @@
 {{ printf "%s-%s" .root.Values.profilePrefix .name }}
 {{- end -}}
 
+{{- define "bootstrap.clusterSelector" -}}
+matchLabels:
+  bootstrap.projectsveltos.io/enabled: "true"
+  {{- if .clustermesh }}
+  bootstrap.projectsveltos.io/clustermesh: "true"
+  {{- end }}
+matchExpressions:
+  - key: bootstrap.projectsveltos.io/cluster
+    operator: Exists
+  {{- if .excludeManagement }}
+  - key: bootstrap.projectsveltos.io/role
+    operator: NotIn
+    values:
+      - {{ .root.Values.managementCluster.role | default "mgmt" | quote }}
+  {{- end }}
+{{- end -}}
+
+{{- define "bootstrap.mgmtSelector" -}}
+matchLabels:
+  bootstrap.projectsveltos.io/role: {{ .Values.managementCluster.role | default "mgmt" | quote }}
+{{- end -}}
+
 {{- define "bootstrap.commonSpec" -}}
 clusterSelector:
-  matchLabels:
-    bootstrap.projectsveltos.io/enabled: "true"
-    {{- if .clustermesh }}
-    bootstrap.projectsveltos.io/clustermesh: "true"
-    {{- end }}
-  matchExpressions:
-    - key: bootstrap.projectsveltos.io/cluster
-      operator: Exists
+  {{- include "bootstrap.clusterSelector" . | nindent 2 }}
 syncMode: ContinuousWithDriftDetection
 stopMatchingBehavior: {{ if .withdraw }}WithdrawPolicies{{ else }}LeavePolicies{{ end }}
 continueOnConflict: false
