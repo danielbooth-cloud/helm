@@ -64,6 +64,7 @@ namespaces:
   externalSecrets: external-secrets
   reloader: reloader
   kro: kro-system
+  kyverno: kyverno
   monitoring: monitoring
   tailscale: tailscale-operator
   ceph: ceph-system
@@ -118,6 +119,8 @@ versions:
   externalDns: 1.22.0
   kro: 0.9.4
   metricsServer: 3.13.1
+  kyverno: 3.10.0
+  descheduler: 0.37.0
   kubeletCsrApprover: 1.2.15
   cephCsi: 3.18.1
   onePasswordConnect: 2.4.3
@@ -759,6 +762,10 @@ applicationValues:
         prometheus.io/path: /metrics
         prometheus.io/port: "8078"
         prometheus.io/scrape: "true"
+  kyverno: |
+    # Chart defaults for now; add policies or tuning here as they earn their keep.
+  descheduler: |
+    # Chart defaults for now; add policy strategies here as they earn their keep.
   gateway-route-rgd: |
     resources:
       - apiVersion: kro.run/v1alpha1
