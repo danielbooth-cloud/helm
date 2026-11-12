@@ -94,6 +94,16 @@ entries:
   universal:
   - apiVersion: v2
     appVersion: 1.0.0
+    created: "2026-11-12T19:36:48.732319216Z"
+    description: A universal master Helm chart for deploying applications to Kubernetes
+    digest: 4ba5435929169d3e1796411d0b96bc8850bc7c6c1774b738a873cd93ff3f8f19
+    name: universal
+    type: application
+    urls:
+    - https://github.com/danielbooth-cloud/helm/releases/download/universal-0.2.0/universal-0.2.0.tgz
+    version: 0.2.0
+  - apiVersion: v2
+    appVersion: 1.0.0
     created: "2026-11-11T12:17:42.4427791Z"
     description: A universal master Helm chart for deploying applications to Kubernetes
     digest: da6705c4ba8fca1b1ea07fdf38557bbbeab6bf14d3e71a2181742a44873c3a99
@@ -112,4 +122,4 @@ entries:
     urls:
     - https://github.com/danielbooth-cloud/helm/releases/download/universal-0.1.24/universal-0.1.24.tgz
     version: 0.1.24
-generated: "2026-11-12T19:04:50.457786723Z"
+generated: "2026-11-12T19:36:48.732352245Z"
