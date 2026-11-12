@@ -4,7 +4,8 @@
   "kubeconfigSecretSuffix" .Values.sveltosRegistration.kubeconfigSecretSuffix
   "apiPortName" .Values.vclusterRegistration.apiPortName
   "apiPort" .Values.vclusterRegistration.apiPort
-  "apiTargetPort" .Values.vclusterRegistration.apiTargetPort -}}
+  "apiTargetPort" .Values.vclusterRegistration.apiTargetPort
+  "sharedClusterConfig" .Values.sharedClusterConfig -}}
 {{- $preamble := printf "{{- $config := fromJson %s }}\n%s" (toJson $config | quote) (.Files.Get "files/vcluster-registration/preamble.tpl") -}}
 # Registers each CAPI-provisioned vCluster on a non-virtual host as a virtual SveltosCluster
 # here. The host's sveltos-agent reports the kubeconfig Secret; Ops reaches the API over the mesh.

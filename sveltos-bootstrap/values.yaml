@@ -87,9 +87,13 @@ namespaces:
   kubeSystem: kube-system
   argocd: argocd
 
-# Namespaces virtual clusters get; every other bootstrap service is shared from the host.
+# Namespaces virtual clusters get; onepassword and ceph-system come from the vCluster's replicated Services.
 virtualNamespaces:
   - reloader
+  - certManager
+  - externalSecrets
+  - externalDns
+  - kro
 
 namespaceLabels:
   monitoring:
@@ -619,9 +623,16 @@ applicationValues:
                 key: ceph-csi-rbd
                 property: password
   cert-manager: |
+    {{- $virtual := eq (index .Cluster.metadata.labels "bootstrap.projectsveltos.io/virtual" | default "") "true" }}
     cainjector:
       deploymentAnnotations:
         reloader.stakater.com/auto: "true"
+      {{- if $virtual }}
+      resources:
+        requests:
+          cpu: 5m
+          memory: 32Mi
+      {{- end }}
     config:
       gatewayAPI:
         enabled: true
@@ -633,6 +644,18 @@ applicationValues:
     webhook:
       deploymentAnnotations:
         reloader.stakater.com/auto: "true"
+      {{- if $virtual }}
+      resources:
+        requests:
+          cpu: 5m
+          memory: 16Mi
+      {{- end }}
+    {{- if $virtual }}
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+    {{- end }}
   external-dns-token-secret: |
     resources:
       - apiVersion: external-secrets.io/v1
@@ -653,6 +676,13 @@ applicationValues:
             creationPolicy: Owner
             name: {{ (getResource "BootstrapSettings").data.dnsCloudflareSecretName | quote }}
   external-dns: |
+    {{- $virtual := eq (index .Cluster.metadata.labels "bootstrap.projectsveltos.io/virtual" | default "") "true" }}
+    {{- if $virtual }}
+    resources:
+      requests:
+        cpu: 5m
+        memory: 32Mi
+    {{- end }}
     deploymentAnnotations:
       reloader.stakater.com/auto: "true"
     enableGatewayListenerSets: true
@@ -677,6 +707,18 @@ applicationValues:
       - gateway-httproute
     txtOwnerId: {{ default (printf "%s-%s" .Cluster.metadata.namespace .Cluster.metadata.name) (index ((index .Cluster.metadata "annotations") | default dict) "bootstrap.projectsveltos.io/dns-owner") | quote }}
   external-secrets-operator: |
+    {{- $virtual := eq (index .Cluster.metadata.labels "bootstrap.projectsveltos.io/virtual" | default "") "true" }}
+    {{- if $virtual }}
+    # vClusters skip the admission webhook and its cert controller; ESO reconciles without them.
+    webhook:
+      create: false
+    certController:
+      create: false
+    resources:
+      requests:
+        cpu: 10m
+        memory: 48Mi
+    {{- else }}
     certController:
       podAnnotations:
         prometheus.io/path: /metrics
@@ -691,6 +733,7 @@ applicationValues:
         prometheus.io/path: /metrics
         prometheus.io/port: "8080"
         prometheus.io/scrape: "true"
+    {{- end }}
   cluster-secret-store: |
     resources:
       - apiVersion: v1
@@ -816,7 +859,14 @@ applicationValues:
                       - key: kubernetes.io/metadata.name
                         operator: DoesNotExist
   kro: |
+    {{- $virtual := eq (index .Cluster.metadata.labels "bootstrap.projectsveltos.io/virtual" | default "") "true" }}
     deployment:
+      {{- if $virtual }}
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+      {{- end }}
       podAnnotations:
         prometheus.io/path: /metrics
         prometheus.io/port: "8078"

@@ -1,7 +1,10 @@
+{{- /* Fleet-wide keys (Connect, issuer email) plus clusterName; nothing host-specific. */ -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ printf "%s-%s-bootstrap-config" $config.registrationNamespace $name | quote }}
   namespace: {{ $config.registrationNamespace | quote }}
 data:
-  clusterName: {{ $name | quote }}
+  {{- range $key, $value := merge (dict "clusterName" $name) ($config.sharedClusterConfig | default dict) }}
+  {{ $key }}: {{ $value | toString | quote }}
+  {{- end }}

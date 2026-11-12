@@ -5,12 +5,14 @@ kind: ClusterProfile
 metadata:
   name: {{ include "bootstrap.profileName" (dict "root" . "name" "cluster-secret-store") | quote }}
 spec:
-  {{- include "bootstrap.commonSpec" (dict "root" . "excludeVirtual" true) | nindent 2 }}
+  {{- include "bootstrap.commonSpec" (dict "root" . "selector" "bootstrap") | nindent 2 }}
   templateResourceRefs:
     {{- include "bootstrap.chartReferences" (dict "root" . "credentials" true) | nindent 4 }}
   dependsOn:
     - {{ include "bootstrap.profileName" (dict "root" . "name" "namespaces") | quote }}
     - {{ include "bootstrap.profileName" (dict "root" . "name" "external-secrets-operator") | quote }}
+  # No dependsOn onepassword-connect: vClusters use the host's Connect, and dependsOn would deploy it
+  # to them. The store's Ready health check waits for Connect instead.
   helmCharts:
     - chartName: bedag/raw
       chartVersion: '{{ .Values.versions.raw }}'

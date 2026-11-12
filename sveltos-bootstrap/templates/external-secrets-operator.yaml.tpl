@@ -5,13 +5,11 @@ kind: ClusterProfile
 metadata:
   name: {{ include "bootstrap.profileName" (dict "root" . "name" "external-secrets-operator") | quote }}
 spec:
-  {{- include "bootstrap.commonSpec" (dict "root" . "excludeVirtual" true) | nindent 2 }}
+  {{- include "bootstrap.commonSpec" (dict "root" . "selector" "bootstrap") | nindent 2 }}
   templateResourceRefs:
     {{- include "bootstrap.chartReferences" (dict "root" . "credentials" false) | nindent 4 }}
   dependsOn:
     - {{ include "bootstrap.profileName" (dict "root" . "name" "namespaces") | quote }}
-    # ESO's ClusterSecretStore authenticates against 1Password Connect.
-    - {{ include "bootstrap.profileName" (dict "root" . "name" "onepassword-connect") | quote }}
   helmCharts:
     - chartName: external-secrets/external-secrets
       chartVersion: '{{ .Values.versions.externalSecrets }}'
