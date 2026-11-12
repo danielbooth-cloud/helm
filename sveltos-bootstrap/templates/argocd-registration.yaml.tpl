@@ -53,7 +53,8 @@ metadata:
   name: {{ printf "%s-argocd-registration" .Release.Name | quote }}
   namespace: {{ .Release.Namespace | quote }}
   annotations:
-    projectsveltos.io/template: ok
+    # Rendered per event by the event-manager: .Cluster is the source cluster, .Resource its token.
+    projectsveltos.io/instantiate: ok
 data:
   cluster.yaml: |
     apiVersion: v1

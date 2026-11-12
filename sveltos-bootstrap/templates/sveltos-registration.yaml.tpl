@@ -51,7 +51,8 @@ metadata:
   name: {{ printf "%s-sveltos-registration-job" .Release.Name | quote }}
   namespace: {{ .Release.Namespace | quote }}
   annotations:
-    projectsveltos.io/template: ok
+    # Rendered per event by the event-manager, where .Resource is the key Secret.
+    projectsveltos.io/instantiate: ok
 data:
   job.yaml: |
     apiVersion: batch/v1
@@ -103,25 +104,25 @@ data:
               command: [bash, /scripts/sveltos-registration.sh]
               securityContext: *container-security
               env:
-                HOME:
+                - name: HOME
                   value: /tmp
-                CLUSTER:
+                - name: CLUSTER
                   value: {{ "{{ index .Resource.metadata.labels \"bootstrap.projectsveltos.io/registration-cluster\" }}" }}
-                NAMESPACE:
+                - name: NAMESPACE
                   value: {{ "{{ .Resource.metadata.namespace }}" }}
-                OMNI_KEY_SECRET:
+                - name: OMNI_KEY_SECRET
                   value: {{ "{{ .Resource.metadata.name }}" }}
-                KUBECONFIG_SECRET:
+                - name: KUBECONFIG_SECRET
                   value: {{ printf "{{ index .Resource.metadata.labels \"bootstrap.projectsveltos.io/registration-cluster\" }}%s" .Values.sveltosRegistration.kubeconfigSecretSuffix }}
-                OMNI_ENDPOINT:
+                - name: OMNI_ENDPOINT
                   value: {{ required "sveltosRegistration.omniEndpoint is required" .Values.sveltosRegistration.omniEndpoint | quote }}
-                KUBECONFIG_USER:
+                - name: KUBECONFIG_USER
                   value: {{ .Values.sveltosRegistration.kubeconfig.user | quote }}
-                KUBECONFIG_GROUPS:
+                - name: KUBECONFIG_GROUPS
                   value: {{ join "," .Values.sveltosRegistration.kubeconfig.groups | quote }}
-                KUBECONFIG_TTL:
+                - name: KUBECONFIG_TTL
                   value: {{ .Values.sveltosRegistration.kubeconfig.ttl | quote }}
-                OWNER:
+                - name: OWNER
                   value: {{ .Release.Name | quote }}
               volumeMounts:
                 - name: tools
