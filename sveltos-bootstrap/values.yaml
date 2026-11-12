@@ -197,8 +197,10 @@ applicationValues:
               command: [bash, -c]
               args:
                 - export HELMFILE_GLOBAL_OPTIONS="${ARGOCD_ENV_HELMFILE_GLOBAL_OPTIONS:-}"; unset ARGOCD_APP_NAMESPACE; exec /usr/local/bin/argocd-helmfile generate
+            # A glob: matches helmfile.yaml and helmfile.yaml.gotmpl. Argo CD runs discovery even
+            # for Applications that name the plugin, so it has to match both.
             discover:
-              fileName: helmfile.yaml
+              fileName: helmfile.yaml*
     server:
       deploymentAnnotations:
         reloader.stakater.com/auto: "true"
