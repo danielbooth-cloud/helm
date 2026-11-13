@@ -2,6 +2,15 @@ apiVersion: v1
 entries:
   sveltos-bootstrap:
   - apiVersion: v2
+    created: "2026-11-13T20:25:26.165730353Z"
+    description: Native Sveltos profiles for the common cluster bootstrap
+    digest: ce8904df9e4aeef58b9da924978f55680af4c04a7135291c4e106aa69c1ec555
+    name: sveltos-bootstrap
+    type: application
+    urls:
+    - https://github.com/danielbooth-cloud/helm/releases/download/sveltos-bootstrap-0.1.36/sveltos-bootstrap-0.1.36.tgz
+    version: 0.1.36
+  - apiVersion: v2
     created: "2026-11-13T19:47:06.429505326Z"
     description: Native Sveltos profiles for the common cluster bootstrap
     digest: 38d1f3334847d5768fbf14f1539d98ef976f4d4786d46b6892e4885902d2a9ce
@@ -292,6 +301,16 @@ entries:
   universal:
   - apiVersion: v2
     appVersion: 1.0.0
+    created: "2026-11-13T20:25:26.364013061Z"
+    description: A universal master Helm chart for deploying applications to Kubernetes
+    digest: 2a4c70ff12e51d2a59d5aa75c0c62e51fab2d844bc18c4fecbe4907248513126
+    name: universal
+    type: application
+    urls:
+    - https://github.com/danielbooth-cloud/helm/releases/download/universal-0.2.1/universal-0.2.1.tgz
+    version: 0.2.1
+  - apiVersion: v2
+    appVersion: 1.0.0
     created: "2026-11-12T19:36:48.732319216Z"
     description: A universal master Helm chart for deploying applications to Kubernetes
     digest: 4ba5435929169d3e1796411d0b96bc8850bc7c6c1774b738a873cd93ff3f8f19
@@ -320,4 +339,4 @@ entries:
     urls:
     - https://github.com/danielbooth-cloud/helm/releases/download/universal-0.1.24/universal-0.1.24.tgz
     version: 0.1.24
-generated: "2026-11-13T19:47:06.430102104Z"
+generated: "2026-11-13T20:25:26.364208535Z"
