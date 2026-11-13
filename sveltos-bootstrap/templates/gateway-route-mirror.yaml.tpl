@@ -7,6 +7,9 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
   annotations:
     projectsveltos.io/template: ok
+    # Sveltos does not re-render when the source CRD changes, only when this ConfigMap does:
+    # the RGD revision hash changes it whenever the RGD (and so kro's CRD) changes.
+    bootstrap.projectsveltos.io/rgd-hash: {{ index .Values.applicationValues "gateway-route-rgd" | sha256sum | trunc 16 | quote }}
 data:
   crd.yaml: |
     {{- .Files.Get "files/gateway-route-mirror/crd.yaml" | nindent 4 }}
@@ -23,6 +26,17 @@ spec:
         apiVersion: apiextensions.k8s.io/v1
         kind: CustomResourceDefinition
         name: gatewayroutes.kro.run
+    - identifier: GatewayRouteRGD
+      resource:
+        apiVersion: kro.run/v1alpha1
+        kind: ResourceGraphDefinition
+        name: gatewayroute.kro.run
+    - identifier: BootstrapSettings
+      resource:
+        apiVersion: v1
+        kind: ConfigMap
+        namespace: {{ .Release.Namespace | quote }}
+        name: {{ printf "%s-settings" .Release.Name | quote }}
   policyRefs:
     - kind: ConfigMap
       name: {{ include "bootstrap.profileName" (dict "root" . "name" "gateway-route-crd") | quote }}

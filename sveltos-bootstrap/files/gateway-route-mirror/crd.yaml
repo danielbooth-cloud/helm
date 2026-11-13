@@ -1,5 +1,18 @@
 {{- /* kro's generated CRD on the management cluster, minus its kro ownership metadata. */ -}}
 {{- $crd := getResource "GatewayRouteCRD" }}
+{{- /* Copy only once kro serves the current RGD revision: Ready for its latest generation and
+stamped with this release's hash. Otherwise the old CRD would be copied and stay stale; a
+failed render is retried by Sveltos. */ -}}
+{{- $rgd := getResource "GatewayRouteRGD" }}
+{{- $want := (getResource "BootstrapSettings").data.gatewayRouteRgdHash }}
+{{- $have := index ($rgd.metadata.annotations | default dict) "bootstrap.projectsveltos.io/rgd-hash" | default "" }}
+{{- $ready := false }}
+{{- range (($rgd.status | default dict).conditions | default list) }}
+{{- if and (eq .type "Ready") (eq .status "True") (eq (int64 .observedGeneration) (int64 $rgd.metadata.generation)) }}{{ $ready = true }}{{ end }}
+{{- end }}
+{{- if or (ne $have $want) (not $ready) }}
+{{- fail (printf "waiting for kro to serve GatewayRoute RGD revision %s (live: %s, ready: %t)" $want $have $ready) }}
+{{- end }}
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:

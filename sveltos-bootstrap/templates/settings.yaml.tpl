@@ -9,6 +9,8 @@ data:
   onepasswordNamespace: {{ .Values.namespaces.onepassword | quote }}
   certificateNamespace: {{ .Values.namespaces.certManager | quote }}
   kubeSystemNamespace: {{ .Values.namespaces.kubeSystem | quote }}
+  # Identifies the GatewayRoute RGD revision; vCluster CRD copies wait for kro to serve it.
+  gatewayRouteRgdHash: {{ index .Values.applicationValues "gateway-route-rgd" | sha256sum | trunc 16 | quote }}
   argocdNamespace: {{ .Values.namespaces.argocd | quote }}
   clusterMeshIssuerName: {{ .Values.clusterMesh.issuerName | quote }}
   clusterMeshApiserverIpAddresses: {{ .Values.clusterMesh.apiserverIpAddresses | toJson | quote }}

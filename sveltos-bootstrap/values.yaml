@@ -1084,6 +1084,9 @@ applicationValues:
         kind: ResourceGraphDefinition
         metadata:
           name: gatewayroute.kro.run
+          annotations:
+            # Read by the vCluster CRD copy (gateway-route-crd) to know kro has served this revision.
+            bootstrap.projectsveltos.io/rgd-hash: {{ (getResource "BootstrapSettings").data.gatewayRouteRgdHash | quote }}
         spec:
           resources:
             # The gateway's Tailscale proxy reports both its tailnet IP and its .ts.net
