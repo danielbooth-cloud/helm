@@ -317,7 +317,7 @@ applicationValues:
         kind: Service
         metadata:
           name: argocd-server
-          namespace: {{ .Values.namespaces.argocd | quote }}
+          namespace: {{ (getResource "BootstrapSettings").data.argocdNamespace | quote }}
           annotations:
             service.cilium.io/global: "true"
             # Never advertise: this cluster contributes no endpoints of its own.

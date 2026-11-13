@@ -9,6 +9,7 @@ data:
   onepasswordNamespace: {{ .Values.namespaces.onepassword | quote }}
   certificateNamespace: {{ .Values.namespaces.certManager | quote }}
   kubeSystemNamespace: {{ .Values.namespaces.kubeSystem | quote }}
+  argocdNamespace: {{ .Values.namespaces.argocd | quote }}
   clusterMeshIssuerName: {{ .Values.clusterMesh.issuerName | quote }}
   clusterMeshApiserverIpAddresses: {{ .Values.clusterMesh.apiserverIpAddresses | toJson | quote }}
   clusterMeshCaSecretName: {{ .Values.clusterMesh.caSecretName | quote }}

@@ -11,6 +11,8 @@ metadata:
   name: {{ include "bootstrap.profileName" (dict "root" . "name" "argocd-mesh") | quote }}
 spec:
   {{- include "bootstrap.commonSpec" (dict "root" . "clustermesh" true "excludeManagement" true "excludeVirtual" true) | nindent 2 }}
+  templateResourceRefs:
+    {{- include "bootstrap.chartReferences" (dict "root" . "credentials" false) | nindent 4 }}
   dependsOn:
     - {{ include "bootstrap.profileName" (dict "root" . "name" "namespaces") | quote }}
   helmCharts:
