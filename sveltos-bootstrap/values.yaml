@@ -222,12 +222,15 @@ applicationValues:
         # argocd-cm names the OIDC client Secret instead of referencing it, so auto-reload cannot see it.
         secret.reloader.stakater.com/reload: {{ (getResource "ClusterConfig").data.argocdOidcSecretName | quote }}
       service:
-        # Second port on the same container port advertising h2c: argocd-server serves
-        # REST (HTTP/1.1) and gRPC (h2c) there, so the argocd GatewayRoute targets it
-        # and Cilium's Envoy speaks h2 upstream. Needs gatewayAPI.enableAlpn=true in the
-        # Cilium install (IaC) for downstream h2/ALPN at the gateway's TLS listener.
+        # Extra port on the same container port only because the kro GatewayRoute targets
+        # 8080. The appProtocol MUST stay HTTP/1.1: argocd-server's 8080 serves REST and
+        # gRPC-web over h1 and resets raw h2c, so an h2c appProtocol makes Cilium's Envoy
+        # speak h2 upstream and every request through the gateway 503s (upstream
+        # connection termination). Downstream h2 at the gateway TLS listener is unrelated:
+        # it comes from gatewayAPI.enableAlpn=true in the Cilium install (IaC). The argocd
+        # CLI uses gRPC-web over h1, which Envoy proxies fine.
         servicePortHttp2: 8080
-        servicePortHttp2AppProtocol: kubernetes.io/h2c
+        servicePortHttp2AppProtocol: kubernetes.io/http
     repoServer:
       # No environment in the sidecar: each Application selects its helmfile environment with the
       # HELMFILE_GLOBAL_OPTIONS parameter (-e <overlay>), re-exported unprefixed by configs.cmp above.
