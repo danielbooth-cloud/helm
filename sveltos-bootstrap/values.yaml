@@ -194,13 +194,16 @@ applicationValues:
         # back-filled status is the real signal (Ready=True/Active = Healthy, Failed/Error =
         # Degraded), so no per-app ignore-healthcheck annotation is needed.
         resource.customizations.health.kro.run_GatewayRoute: |
+          -- No string library in Argo CD's Lua sandbox: match kro's states (ACTIVE,
+          -- IN_PROGRESS, FAILED, ERROR) through literal lookup tables, both casings.
+          healthy = {ACTIVE = true, Active = true}
+          degraded = {FAILED = true, Failed = true, ERROR = true, Error = true}
           hs = {}
           state = ""
           ready = false
           message = ""
           if obj.status ~= nil then
-            -- kro reports ACTIVE/IN_PROGRESS/FAILED/ERROR; compare case-insensitively.
-            if obj.status.state ~= nil then state = string.upper(obj.status.state) end
+            if obj.status.state ~= nil then state = obj.status.state end
             if obj.status.conditions ~= nil then
               for _, condition in ipairs(obj.status.conditions) do
                 if condition.type == "Ready" then
@@ -210,10 +213,10 @@ applicationValues:
               end
             end
           end
-          if ready or state == "ACTIVE" then
+          if ready or healthy[state] then
             hs.status = "Healthy"
             hs.message = message
-          elseif state == "FAILED" or state == "ERROR" then
+          elseif degraded[state] then
             hs.status = "Degraded"
             hs.message = message
           else
