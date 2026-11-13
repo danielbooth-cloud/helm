@@ -2,6 +2,15 @@ apiVersion: v1
 entries:
   sveltos-bootstrap:
   - apiVersion: v2
+    created: "2026-11-13T20:40:02.300381101Z"
+    description: Native Sveltos profiles for the common cluster bootstrap
+    digest: 37f1c09f60300a7e4421d998ec73d9791b04cd5796713bc2170ecf273e6550e5
+    name: sveltos-bootstrap
+    type: application
+    urls:
+    - https://github.com/danielbooth-cloud/helm/releases/download/sveltos-bootstrap-0.1.37/sveltos-bootstrap-0.1.37.tgz
+    version: 0.1.37
+  - apiVersion: v2
     created: "2026-11-13T20:25:26.165730353Z"
     description: Native Sveltos profiles for the common cluster bootstrap
     digest: ce8904df9e4aeef58b9da924978f55680af4c04a7135291c4e106aa69c1ec555
@@ -339,4 +348,4 @@ entries:
     urls:
     - https://github.com/danielbooth-cloud/helm/releases/download/universal-0.1.24/universal-0.1.24.tgz
     version: 0.1.24
-generated: "2026-11-13T20:25:26.364208535Z"
+generated: "2026-11-13T20:40:02.300656324Z"
