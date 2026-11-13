@@ -176,6 +176,8 @@ applicationValues:
         server.insecure: true
       cm:
         url: {{ printf "https://%s" (getResource "ClusterConfig").data.argocdDomain | quote }}
+        # Read-only API account for the homepage dashboard; the token is minted by hand.
+        accounts.homepage: apiKey
         # Direct OIDC against tsidp; dex stays disabled. Redirect URI is <url>/auth/callback.
         oidc.config: |
           name: {{ (getResource "ClusterConfig").data.argocdOidcName }}
@@ -188,6 +190,9 @@ applicationValues:
         policy.default: {{ (getResource "ClusterConfig").data.argocdRbacDefault | quote }}
         policy.csv: |
           g, {{ (getResource "ClusterConfig").data.argocdAdminIdentity }}, role:admin
+          # Read-only over every application, for the homepage account only.
+          p, role:homepage, applications, get, */*, allow
+          g, homepage, role:homepage
         scopes: '[email]'
       # Replaces the plugin.yaml baked into the camptocamp helmfile image (mounted below).
       # - Argo CD hands each Application's plugin.env to the plugin as ARGOCD_ENV_<name>, but
@@ -1132,6 +1137,8 @@ applicationValues:
                       backendRefs:
                         - name: ${schema.spec.serviceName}
                           port: ${schema.spec.servicePort}
+                          # Empty string behaves as unset: Envoy falls back to HTTP/1.1 upstream.
+                          appProtocol: '${schema.spec.http2 ? "kubernetes.io/h2c" : ""}'
             - id: routeAuthProxy
               includeWhen:
                 # Auth proxy configured: backend is the existing proxy Service, which
@@ -1164,6 +1171,7 @@ applicationValues:
                           # Empty namespace means same-namespace; emit it explicitly.
                           namespace: ${schema.spec.authProxy.backendRef.?namespace.orValue(schema.metadata.namespace)}
                           port: ${schema.spec.authProxy.backendRef.port}
+                          appProtocol: '${schema.spec.http2 ? "kubernetes.io/h2c" : ""}'
             - id: authProxyReferenceGrant
               includeWhen:
                 - ${schema.spec.?authProxy.?backendRef.?name.orValue("") != ""}
@@ -1189,7 +1197,7 @@ applicationValues:
                 # Pod labels supplied: lock the app to cluster-internal ingress. Blocks
                 # gateway-Envoy (reserved:ingress) traffic to the app directly; external
                 # callers must go through the auth proxy, in-cluster callers are unaffected.
-                - ${schema.spec.?authProxy.?podSelector.orValue([]).size() > 0}
+                - ${schema.spec.?authProxy.?podSelector.orValue({}).size() > 0}
               template:
                 apiVersion: cilium.io/v2
                 kind: CiliumNetworkPolicy
@@ -1198,7 +1206,7 @@ applicationValues:
                   namespace: ${schema.metadata.namespace}
                 spec:
                   endpointSelector:
-                    matchExpressions: "${schema.spec.authProxy.podSelector.map(p, {\"key\": p.key, \"operator\": \"In\", \"values\": [p.value]})}"
+                    matchLabels: "${schema.spec.authProxy.podSelector}"
                   ingress:
                     - fromEntities:
                         - cluster
@@ -1213,6 +1221,13 @@ applicationValues:
               # Limits the route to one API, e.g. Mimir's push endpoint without its query API.
               pathPrefix: string | default="/"
               tls: boolean | default=true
+              # Backend speaks HTTP/2 cleartext (h2c) — gRPC servers like argocd-server.
+              # Sets appProtocol: kubernetes.io/h2c on the backendRefs so Cilium's Envoy
+              # uses h2 upstream. Requires gatewayAPI.enableAlpn=true on the cluster's
+              # Cilium install (IaC cilium_values) for downstream h2/ALPN at the TLS
+              # listener; without it gRPC clients fail the handshake (no ALPN advertised).
+              # With authProxy, the proxy Service must also serve h2c.
+              http2: boolean | default=false
               # Optional oauth2-proxy in front of the route. Omitted/null = disabled: the
               # route behaves exactly as before. The proxy is NOT deployed by this RGD; it
               # must already exist (in-cluster or reachable via ClusterMesh). When set, the
@@ -1230,11 +1245,11 @@ applicationValues:
                 # only. The gateway's Envoy carries Cilium's reserved ingress identity, so
                 # external callers can no longer reach the app directly — they must go
                 # through the auth proxy (whose pods are cluster entities), while in-cluster
-                # API callers keep working unchanged. Array of {key, value} pod-label pairs,
-                # rendered as endpointSelector matchExpressions (key In [value]).
-                # Host-cluster workloads only: vCluster-mirrored routes proxy to
-                # ClusterMesh Services whose pods are not selectable from the host.
-                podSelector: array
+                # API callers keep working unchanged. Flat map of pod labels, used directly
+                # as the CNP's endpointSelector.matchLabels. Host-cluster workloads only:
+                # vCluster-mirrored routes proxy to ClusterMesh Services whose pods are
+                # not selectable from the host.
+                podSelector: "map[string]string"
             status:
               # The Tailscale gateway's .ts.net DNS name, falling back to its tailnet IP
               # if it reports no hostname. (The external-dns target annotations above keep
