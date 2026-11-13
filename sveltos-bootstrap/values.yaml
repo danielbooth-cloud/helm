@@ -221,6 +221,13 @@ applicationValues:
         reloader.stakater.com/auto: "true"
         # argocd-cm names the OIDC client Secret instead of referencing it, so auto-reload cannot see it.
         secret.reloader.stakater.com/reload: {{ (getResource "ClusterConfig").data.argocdOidcSecretName | quote }}
+      service:
+        # Second port on the same container port advertising h2c: argocd-server serves
+        # REST (HTTP/1.1) and gRPC (h2c) there, so the argocd GatewayRoute targets it
+        # and Cilium's Envoy speaks h2 upstream. Needs gatewayAPI.enableAlpn=true in the
+        # Cilium install (IaC) for downstream h2/ALPN at the gateway's TLS listener.
+        servicePortHttp2: 8080
+        servicePortHttp2AppProtocol: kubernetes.io/h2c
     repoServer:
       # No environment in the sidecar: each Application selects its helmfile environment with the
       # HELMFILE_GLOBAL_OPTIONS parameter (-e <overlay>), re-exported unprefixed by configs.cmp above.
@@ -1137,8 +1144,6 @@ applicationValues:
                       backendRefs:
                         - name: ${schema.spec.serviceName}
                           port: ${schema.spec.servicePort}
-                          # Empty string behaves as unset: Envoy falls back to HTTP/1.1 upstream.
-                          appProtocol: '${schema.spec.http2 ? "kubernetes.io/h2c" : ""}'
             - id: routeAuthProxy
               includeWhen:
                 # Auth proxy configured: backend is the existing proxy Service, which
@@ -1171,7 +1176,6 @@ applicationValues:
                           # Empty namespace means same-namespace; emit it explicitly.
                           namespace: ${schema.spec.authProxy.backendRef.?namespace.orValue(schema.metadata.namespace)}
                           port: ${schema.spec.authProxy.backendRef.port}
-                          appProtocol: '${schema.spec.http2 ? "kubernetes.io/h2c" : ""}'
             - id: authProxyReferenceGrant
               includeWhen:
                 - ${schema.spec.?authProxy.?backendRef.?name.orValue("") != ""}
@@ -1221,13 +1225,6 @@ applicationValues:
               # Limits the route to one API, e.g. Mimir's push endpoint without its query API.
               pathPrefix: string | default="/"
               tls: boolean | default=true
-              # Backend speaks HTTP/2 cleartext (h2c) — gRPC servers like argocd-server.
-              # Sets appProtocol: kubernetes.io/h2c on the backendRefs so Cilium's Envoy
-              # uses h2 upstream. Requires gatewayAPI.enableAlpn=true on the cluster's
-              # Cilium install (IaC cilium_values) for downstream h2/ALPN at the TLS
-              # listener; without it gRPC clients fail the handshake (no ALPN advertised).
-              # With authProxy, the proxy Service must also serve h2c.
-              http2: boolean | default=false
               # Optional oauth2-proxy in front of the route. Omitted/null = disabled: the
               # route behaves exactly as before. The proxy is NOT deployed by this RGD; it
               # must already exist (in-cluster or reachable via ClusterMesh). When set, the

@@ -136,5 +136,5 @@ data:
       name: argocd
       hostname: {{ "{{ (getResource \"ClusterConfig\").data.argocdDomain }}" }}
       serviceName: argocd-server
-      servicePort: 80
+      servicePort: 8080
 {{- end }}
