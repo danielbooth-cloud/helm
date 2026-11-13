@@ -26,10 +26,11 @@ metadata:
     # The status back-fill (gateway-route-status) selects the mirrors by this label.
     bootstrap.projectsveltos.io/gateway-route-mirror: "true"
   annotations:
-    # Where kro's status is copied back from: the source vCluster's SveltosCluster and the
-    # route's identity and spec there, so the back-fill never has to reverse the naming above.
-    bootstrap.projectsveltos.io/mirror-source-namespace: {{ index $annotations "bootstrap.projectsveltos.io/host-cluster-namespace" | quote }}
-    bootstrap.projectsveltos.io/mirror-source-name: {{ index $annotations "bootstrap.projectsveltos.io/host-cluster-name" | quote }}
+    # Where kro's status is copied back to: the source vCluster's own SveltosCluster (.Cluster,
+    # NOT its host-cluster-* annotations, which name this host) and the route's identity and
+    # spec there, so the back-fill never has to reverse the naming above.
+    bootstrap.projectsveltos.io/mirror-source-namespace: {{ .Cluster.metadata.namespace | quote }}
+    bootstrap.projectsveltos.io/mirror-source-name: {{ .Cluster.metadata.name | quote }}
     bootstrap.projectsveltos.io/route-name: {{ .Resource.metadata.name | quote }}
     bootstrap.projectsveltos.io/route-namespace: {{ $namespace | quote }}
     bootstrap.projectsveltos.io/route-spec: {{ toYaml (deepCopy .Resource.spec) | quote }}

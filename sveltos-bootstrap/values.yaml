@@ -199,7 +199,8 @@ applicationValues:
           ready = false
           message = ""
           if obj.status ~= nil then
-            if obj.status.state ~= nil then state = obj.status.state end
+            -- kro reports ACTIVE/IN_PROGRESS/FAILED/ERROR; compare case-insensitively.
+            if obj.status.state ~= nil then state = string.upper(obj.status.state) end
             if obj.status.conditions ~= nil then
               for _, condition in ipairs(obj.status.conditions) do
                 if condition.type == "Ready" then
@@ -209,10 +210,10 @@ applicationValues:
               end
             end
           end
-          if ready or state == "Active" then
+          if ready or state == "ACTIVE" then
             hs.status = "Healthy"
             hs.message = message
-          elseif state == "Failed" or state == "Error" then
+          elseif state == "FAILED" or state == "ERROR" then
             hs.status = "Degraded"
             hs.message = message
           else
