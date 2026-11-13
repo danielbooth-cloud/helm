@@ -1309,6 +1309,8 @@ applicationValues:
         metadata:
           name: gatewayroute.kro.run
           annotations:
+            # Lets kro add required spec fields (gateway); instances missing one error, not prune.
+            kro.run/allow-breaking-changes: "true"
             # Read by the vCluster CRD copy (gateway-route-crd) to know kro has served this revision.
             bootstrap.projectsveltos.io/rgd-hash: {{ (getResource "BootstrapSettings").data.gatewayRouteRgdHash | quote }}
         spec:
