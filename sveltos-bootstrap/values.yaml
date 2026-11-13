@@ -90,10 +90,7 @@ namespaces:
 # Namespaces virtual clusters get; onepassword and ceph-system come from the vCluster's replicated Services.
 virtualNamespaces:
   - reloader
-  - certManager
   - externalSecrets
-  - externalDns
-  - kro
 
 namespaceLabels:
   monitoring:
@@ -623,16 +620,9 @@ applicationValues:
                 key: ceph-csi-rbd
                 property: password
   cert-manager: |
-    {{- $virtual := eq (index .Cluster.metadata.labels "bootstrap.projectsveltos.io/virtual" | default "") "true" }}
     cainjector:
       deploymentAnnotations:
         reloader.stakater.com/auto: "true"
-      {{- if $virtual }}
-      resources:
-        requests:
-          cpu: 5m
-          memory: 32Mi
-      {{- end }}
     config:
       gatewayAPI:
         enabled: true
@@ -644,18 +634,6 @@ applicationValues:
     webhook:
       deploymentAnnotations:
         reloader.stakater.com/auto: "true"
-      {{- if $virtual }}
-      resources:
-        requests:
-          cpu: 5m
-          memory: 16Mi
-      {{- end }}
-    {{- if $virtual }}
-    resources:
-      requests:
-        cpu: 10m
-        memory: 32Mi
-    {{- end }}
   external-dns-token-secret: |
     resources:
       - apiVersion: external-secrets.io/v1
@@ -676,13 +654,6 @@ applicationValues:
             creationPolicy: Owner
             name: {{ (getResource "BootstrapSettings").data.dnsCloudflareSecretName | quote }}
   external-dns: |
-    {{- $virtual := eq (index .Cluster.metadata.labels "bootstrap.projectsveltos.io/virtual" | default "") "true" }}
-    {{- if $virtual }}
-    resources:
-      requests:
-        cpu: 5m
-        memory: 32Mi
-    {{- end }}
     deploymentAnnotations:
       reloader.stakater.com/auto: "true"
     enableGatewayListenerSets: true
@@ -859,14 +830,7 @@ applicationValues:
                       - key: kubernetes.io/metadata.name
                         operator: DoesNotExist
   kro: |
-    {{- $virtual := eq (index .Cluster.metadata.labels "bootstrap.projectsveltos.io/virtual" | default "") "true" }}
     deployment:
-      {{- if $virtual }}
-      resources:
-        requests:
-          cpu: 10m
-          memory: 64Mi
-      {{- end }}
       podAnnotations:
         prometheus.io/path: /metrics
         prometheus.io/port: "8078"

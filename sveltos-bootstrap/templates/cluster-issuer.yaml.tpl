@@ -5,7 +5,7 @@ kind: ClusterProfile
 metadata:
   name: {{ include "bootstrap.profileName" (dict "root" . "name" "cluster-issuer") | quote }}
 spec:
-  {{- include "bootstrap.commonSpec" (dict "root" . "selector" "bootstrap") | nindent 2 }}
+  {{- include "bootstrap.commonSpec" (dict "root" . "excludeVirtual" true) | nindent 2 }}
   templateResourceRefs:
     {{- include "bootstrap.chartReferences" (dict "root" . "credentials" true) | nindent 4 }}
   dependsOn:
