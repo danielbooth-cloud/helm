@@ -1,5 +1,7 @@
 {{- include "bootstrap.valuesSecret" (dict "root" . "release" "tailscale-operator") }}
 ---
+{{- include "bootstrap.valuesSecret" (dict "root" . "release" "tailscale-proxy-class") }}
+---
 apiVersion: config.projectsveltos.io/v1beta1
 kind: ClusterProfile
 metadata:
@@ -28,3 +30,18 @@ spec:
       repositoryURL: https://pkgs.tailscale.com/helmcharts
       valuesFrom:
         {{- include "bootstrap.valuesFrom" (dict "root" . "release" "tailscale-operator") | nindent 8 }}
+    # A second release: the ProxyClass CRD comes with the operator chart, and the operator's
+    # defaultProxyClass names this one.
+    - chartName: bedag/raw
+      chartVersion: '{{ .Values.versions.raw }}'
+      helmChartAction: Install
+      options:
+        timeout: 300s
+        wait: true
+        waitForJobs: true
+      releaseName: tailscale-proxy-class
+      releaseNamespace: '{{ .Values.namespaces.tailscale }}'
+      repositoryName: bedag
+      repositoryURL: https://bedag.github.io/helm-charts
+      valuesFrom:
+        {{- include "bootstrap.valuesFrom" (dict "root" . "release" "tailscale-proxy-class") | nindent 8 }}

@@ -32,6 +32,8 @@ data:
   cloudflareSecretField: {{ .Values.settings.cloudflareSecretField | quote }}
   gatewayName: {{ .Values.settings.gatewayName | quote }}
   gatewayNamespace: {{ default .Values.namespaces.gateway .Values.settings.gatewayNamespace | quote }}
+  tailscaleProxyClass: {{ .Values.settings.tailscaleProxyClass | quote }}
+  tailscaleProxyMtu: {{ .Values.settings.tailscaleProxyMtu | quote }}
   clusterApiCoreNamespace: {{ .Values.clusterApi.coreNamespace | quote }}
   clusterApiVclusterNamespace: {{ .Values.clusterApi.vclusterNamespace | quote }}
   clusterApiVersion: {{ .Values.versions.clusterApi | quote }}

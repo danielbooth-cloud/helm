@@ -126,6 +126,15 @@ settings:
   # Cilium north-south Gateway that GatewayRoutes attach to.
   gatewayName: gateway
   gatewayNamespace: ""
+  # Default ProxyClass for every Tailscale operator proxy (Gateway, LoadBalancers).
+  tailscaleProxyClass: pod-network
+  # Tailscale TUN MTU for proxies on the pod network. Cilium (tunnel mode) gives pods a
+  # route MTU of its MTU minus 50 (VXLAN): 1300 - 50 = 1250. WireGuard needs up to 80 more,
+  # so 1250 - 80 = 1170. Tailscale's default 1280 makes ~1340-byte packets that fragment
+  # on the way out and lose enough to stall TCP (~85 KB/s downloads through the Gateway).
+  # Always Cilium's MTU - 50 - 80: change it whenever Cilium's MTU changes (IaC
+  # cilium_values.MTU), then roll the proxies, which read it only at start.
+  tailscaleProxyMtu: "1170"
 
 versions:
   raw: 2.0.2
@@ -1331,10 +1340,25 @@ applicationValues:
         prometheus.io/port: "8080"
         prometheus.io/scrape: "true"
     proxyConfig:
-      defaultProxyClass: ""
+      # Created by this profile's tailscale-proxy-class release.
+      defaultProxyClass: {{ (getResource "BootstrapSettings").data.tailscaleProxyClass | quote }}
       defaultTags: tag:k8s
       firewallMode: auto
       image:
         digest: ""
         repository: tailscale/tailscale
         tag: ""
+  tailscale-proxy-class: |
+    resources:
+      - apiVersion: tailscale.com/v1alpha1
+        kind: ProxyClass
+        metadata:
+          name: {{ (getResource "BootstrapSettings").data.tailscaleProxyClass | quote }}
+        spec:
+          statefulSet:
+            pod:
+              tailscaleContainer:
+                env:
+                  # Read once when the TUN is created; see settings.tailscaleProxyMtu.
+                  - name: TS_DEBUG_MTU
+                    value: {{ (getResource "BootstrapSettings").data.tailscaleProxyMtu | quote }}
