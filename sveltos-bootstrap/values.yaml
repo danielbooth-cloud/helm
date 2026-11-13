@@ -1234,12 +1234,14 @@ applicationValues:
               # route's backend becomes the proxy Service, which authenticates the user and
               # forwards to the target service.
               authProxy:
-                # The existing auth proxy Service. Empty name = auth proxy disabled.
+                # The existing auth proxy Service. No CRD defaults on these fields on
+                # purpose: API-server defaulting would inject them into every live
+                # object and show as permanent drift in GitOps diffs. When configuring,
+                # specify the full backendRef including port.
                 backendRef:
-                  name: string | default=""
-                  # Empty = the route's own namespace (no ReferenceGrant needed then).
-                  namespace: string | default=""
-                  port: integer | default=4180
+                  name: string
+                  namespace: string
+                  port: integer
                 # Optional lockdown: pod labels of the target service's pods. When set, a
                 # CiliumNetworkPolicy allows ingress to those pods from cluster entities
                 # only. The gateway's Envoy carries Cilium's reserved ingress identity, so
