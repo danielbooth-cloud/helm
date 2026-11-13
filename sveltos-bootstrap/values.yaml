@@ -1051,6 +1051,9 @@ applicationValues:
           config.yaml: |
             tunnel: {{ $tunnelId }}
             no-autoupdate: true
+            # QUIC (UDP 7844) never completes from the pod network, and cloudflared keeps
+            # retrying it instead of falling back, so it never connects.
+            protocol: http2
             metrics: 0.0.0.0:2000
             ingress:
               - service: {{ printf "http://cilium-gateway-%s.%s.svc.cluster.local:80" $gateway $namespace }}
@@ -1115,9 +1118,10 @@ applicationValues:
                       path: /ready
                       port: metrics
                     periodSeconds: 10
+                  # Process health only: /ready drops during edge reconnects, which must not restart it.
                   livenessProbe:
                     httpGet:
-                      path: /ready
+                      path: /healthcheck
                       port: metrics
                     initialDelaySeconds: 10
                     periodSeconds: 10
