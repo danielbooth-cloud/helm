@@ -1253,8 +1253,8 @@ applicationValues:
                             value: ${schema.spec.pathPrefix}
                       # Omitted fields keep Envoy's defaults (a 15s route timeout, which cuts
                       # off streams: SSE, LLM responses, long queries); "0s" disables one.
-                      # Optional map entries (?key) drop unset fields; the space after ${ keeps
-                      # "{{" out of this Sveltos template.
+                      # Optional map entries (?key) drop unset fields. Keep the space after the
+                      # opening ${ : two adjacent braces would start a Sveltos template action.
                       timeouts: '${ {?"request": schema.spec.?timeouts.?request, ?"backendRequest": schema.spec.?timeouts.?backendRequest} }'
                       backendRefs:
                         - name: ${schema.spec.serviceName}
@@ -1295,8 +1295,8 @@ applicationValues:
                             value: ${schema.spec.pathPrefix}
                       # Omitted fields keep Envoy's defaults (a 15s route timeout, which cuts
                       # off streams: SSE, LLM responses, long queries); "0s" disables one.
-                      # Optional map entries (?key) drop unset fields; the space after ${ keeps
-                      # "{{" out of this Sveltos template.
+                      # Optional map entries (?key) drop unset fields. Keep the space after the
+                      # opening ${ : two adjacent braces would start a Sveltos template action.
                       timeouts: '${ {?"request": schema.spec.?timeouts.?request, ?"backendRequest": schema.spec.?timeouts.?backendRequest} }'
                       backendRefs:
                         - name: ${schema.spec.authProxy.backendRef.name}
