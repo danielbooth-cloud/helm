@@ -1,6 +1,6 @@
 {{- include "bootstrap.valuesSecret" (dict "root" . "release" "cloudflare-tunnel") }}
 ---
-# Public north-south Gateway behind a Cloudflare Tunnel: GatewayRoutes with
+# Public north-south Gateway (in the gateway namespace) and cloudflared (in its own) behind a Cloudflare Tunnel: GatewayRoutes with
 # `gateway: cloudflare` attach here. Opt-in per cluster with the
 # bootstrap.projectsveltos.io/cloudflare-tunnel=true label; the cluster's ClusterConfig
 # supplies cloudflareTunnelId and cloudflareTunnelItem (the 1Password item holding the
@@ -56,7 +56,7 @@ spec:
       group: apps
       kind: Deployment
       name: cloudflared-available
-      namespace: {{ default .Values.namespaces.gateway .Values.settings.gatewayNamespace | quote }}
+      namespace: {{ .Values.namespaces.cloudflared | quote }}
       script: |
         function evaluate(obj)
           if obj.metadata.name ~= "cloudflared" then return {healthy=true, message=""} end

@@ -84,6 +84,7 @@ namespaces:
   tailscale: tailscale-operator
   ceph: ceph-system
   gateway: gateway
+  cloudflared: cloudflared
   kubeSystem: kube-system
   argocd: argocd
 
@@ -957,6 +958,7 @@ applicationValues:
     {{- end }}
     {{- $namespace := $settings.gatewayNamespace }}
     {{- $gateway := $settings.cloudflareGatewayName }}
+    {{- $cloudflared := $settings.cloudflaredNamespace }}
     resources:
       # The Gateway Service's only address source (see settings.cloudflareGatewayLoadBalancerIp).
       - apiVersion: cilium.io/v2
@@ -1024,7 +1026,7 @@ applicationValues:
         kind: ExternalSecret
         metadata:
           name: {{ $settings.cloudflareTunnelSecretName | quote }}
-          namespace: {{ $namespace | quote }}
+          namespace: {{ $cloudflared | quote }}
         spec:
           data:
             - remoteRef:
@@ -1042,7 +1044,7 @@ applicationValues:
         kind: ConfigMap
         metadata:
           name: cloudflared
-          namespace: {{ $namespace | quote }}
+          namespace: {{ $cloudflared | quote }}
         data:
           # Locally-managed tunnel (config_src local): a remotely-managed one ignores these
           # ingress rules for the dashboard's. Every hostname goes to the Gateway's Envoy,
@@ -1061,7 +1063,7 @@ applicationValues:
         kind: Deployment
         metadata:
           name: cloudflared
-          namespace: {{ $namespace | quote }}
+          namespace: {{ $cloudflared | quote }}
           annotations:
             reloader.stakater.com/auto: "true"
         spec:
@@ -1150,7 +1152,7 @@ applicationValues:
         kind: PodDisruptionBudget
         metadata:
           name: cloudflared
-          namespace: {{ $namespace | quote }}
+          namespace: {{ $cloudflared | quote }}
         spec:
           maxUnavailable: 1
           selector:

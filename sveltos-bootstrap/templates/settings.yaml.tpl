@@ -39,6 +39,7 @@ data:
   cloudflareGatewayLoadBalancerIp: {{ .Values.settings.cloudflareGatewayLoadBalancerIp | quote }}
   cloudflareTunnelSecretName: {{ .Values.settings.cloudflareTunnelSecretName | quote }}
   cloudflareTunnelTokenField: {{ .Values.settings.cloudflareTunnelTokenField | quote }}
+  cloudflaredNamespace: {{ .Values.namespaces.cloudflared | quote }}
   cloudflaredReplicas: {{ .Values.settings.cloudflaredReplicas | quote }}
   cloudflaredImage: {{ printf "cloudflare/cloudflared:%s" .Values.versions.cloudflared | quote }}
   tailscaleProxyClass: {{ .Values.settings.tailscaleProxyClass | quote }}
