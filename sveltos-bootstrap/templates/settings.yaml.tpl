@@ -35,6 +35,12 @@ data:
   cloudflareSecretField: {{ .Values.settings.cloudflareSecretField | quote }}
   gatewayName: {{ .Values.settings.gatewayName | quote }}
   gatewayNamespace: {{ default .Values.namespaces.gateway .Values.settings.gatewayNamespace | quote }}
+  cloudflareGatewayName: {{ .Values.settings.cloudflareGatewayName | quote }}
+  cloudflareGatewayLoadBalancerIp: {{ .Values.settings.cloudflareGatewayLoadBalancerIp | quote }}
+  cloudflareTunnelSecretName: {{ .Values.settings.cloudflareTunnelSecretName | quote }}
+  cloudflareTunnelTokenField: {{ .Values.settings.cloudflareTunnelTokenField | quote }}
+  cloudflaredReplicas: {{ .Values.settings.cloudflaredReplicas | quote }}
+  cloudflaredImage: {{ printf "cloudflare/cloudflared:%s" .Values.versions.cloudflared | quote }}
   tailscaleProxyClass: {{ .Values.settings.tailscaleProxyClass | quote }}
   tailscaleProxyMtu: {{ .Values.settings.tailscaleProxyMtu | quote }}
   clusterApiCoreNamespace: {{ .Values.clusterApi.coreNamespace | quote }}

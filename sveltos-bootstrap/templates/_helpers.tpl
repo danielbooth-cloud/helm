@@ -8,6 +8,10 @@ matchLabels:
   {{- if .clustermesh }}
   bootstrap.projectsveltos.io/clustermesh: "true"
   {{- end }}
+  {{- if .cloudflareTunnel }}
+  {{- /* Opt-in: the cluster has a Cloudflare Tunnel (ClusterConfig cloudflareTunnelId/Item). */}}
+  bootstrap.projectsveltos.io/cloudflare-tunnel: "true"
+  {{- end }}
   {{- if .gatewayRouteApi }}
   {{- /* Set by the gatewayroute-api Classifier once the GatewayRoute CRD is Established. */}}
   bootstrap.projectsveltos.io/gatewayroute-api: "true"

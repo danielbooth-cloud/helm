@@ -123,9 +123,23 @@ settings:
   cloudflareSecretKey: api-token
   cloudflareSecretItem: cloudflare
   cloudflareSecretField: account-api-token
-  # Cilium north-south Gateway that GatewayRoutes attach to.
+  # Cilium north-south Gateways that GatewayRoutes attach to, chosen per route by
+  # spec.gateway: gatewayName is the tailnet-only Gateway (`tailscale`) on every cluster,
+  # cloudflareGatewayName the public one (`cloudflare`) on clusters labelled
+  # bootstrap.projectsveltos.io/cloudflare-tunnel=true. Both live in gatewayNamespace.
   gatewayName: gateway
   gatewayNamespace: ""
+  cloudflareGatewayName: cloudflare
+  # Cilium only marks a LoadBalancer Gateway Programmed once its Service has an address, so
+  # a single-address LB-IPAM pool gives the Cloudflare Gateway's Service this IP. Nothing
+  # announces it (no L2/BGP) and cloudflared dials the ClusterIP, so it only has to stay
+  # clear of the node, pod, Service and tailnet ranges; every cluster can reuse it.
+  cloudflareGatewayLoadBalancerIp: 198.18.0.1
+  # The tunnel token: ExternalSecret target Secret, and the 1Password field holding it in
+  # the cluster's ClusterConfig cloudflareTunnelItem.
+  cloudflareTunnelSecretName: cloudflare-tunnel-token
+  cloudflareTunnelTokenField: token
+  cloudflaredReplicas: 2
   # Default ProxyClass for every Tailscale operator proxy (Gateway, LoadBalancers).
   tailscaleProxyClass: pod-network
   # Tailscale TUN MTU for proxies on the pod network. Cilium (tunnel mode) gives pods a
@@ -141,6 +155,7 @@ versions:
   reloader: 2.2.17
   externalSecrets: 2.10.0
   tailscale: 1.102.4
+  cloudflared: 2026.11.0
   prometheus: 29.36.1
   certManager: v1.21.2
   k8sSecrets: 2.0.0
@@ -932,6 +947,211 @@ applicationValues:
                     matchExpressions:
                       - key: kubernetes.io/metadata.name
                         operator: DoesNotExist
+  cloudflare-tunnel: |
+    {{- $settings := (getResource "BootstrapSettings").data }}
+    {{- $config := (getResource "ClusterConfig").data }}
+    {{- $tunnelId := index $config "cloudflareTunnelId" | default "" }}
+    {{- $tunnelItem := index $config "cloudflareTunnelItem" | default "" }}
+    {{- if or (eq $tunnelId "") (eq $tunnelItem "") }}
+    {{- fail "cloudflare-tunnel: the ClusterConfig must set cloudflareTunnelId and cloudflareTunnelItem" }}
+    {{- end }}
+    {{- $namespace := $settings.gatewayNamespace }}
+    {{- $gateway := $settings.cloudflareGatewayName }}
+    resources:
+      # The Gateway Service's only address source (see settings.cloudflareGatewayLoadBalancerIp).
+      - apiVersion: cilium.io/v2
+        kind: CiliumLoadBalancerIPPool
+        metadata:
+          name: {{ printf "%s-gateway" $gateway | quote }}
+        spec:
+          blocks:
+            - start: {{ $settings.cloudflareGatewayLoadBalancerIp | quote }}
+              stop: {{ $settings.cloudflareGatewayLoadBalancerIp | quote }}
+          serviceSelector:
+            matchLabels:
+              gateway.networking.k8s.io/gateway-name: {{ $gateway | quote }}
+              io.kubernetes.service.namespace: {{ $namespace | quote }}
+      - apiVersion: cilium.io/v2alpha1
+        kind: CiliumGatewayClassConfig
+        metadata:
+          name: cloudflare
+          namespace: {{ $namespace | quote }}
+        spec:
+          # No loadBalancerClass: Cilium LB-IPAM assigns the pool's address above.
+          service:
+            type: LoadBalancer
+      - apiVersion: gateway.networking.k8s.io/v1
+        kind: GatewayClass
+        metadata:
+          name: cilium-cloudflare
+        spec:
+          controllerName: io.cilium/gateway-controller
+          parametersRef:
+            group: cilium.io
+            kind: CiliumGatewayClassConfig
+            name: cloudflare
+            namespace: {{ $namespace | quote }}
+      - apiVersion: gateway.networking.k8s.io/v1
+        kind: Gateway
+        metadata:
+          name: {{ $gateway | quote }}
+          namespace: {{ $namespace | quote }}
+          annotations:
+            # Every public route's DNS record: a proxied CNAME to the tunnel. The GatewayRoute
+            # RGD copies it onto each route's ListenerSet and into the route's status.
+            external-dns.kubernetes.io/target: {{ printf "%s.cfargotunnel.com" $tunnelId | quote }}
+        spec:
+          gatewayClassName: cilium-cloudflare
+          allowedListeners:
+            namespaces:
+              from: Selector
+              selector:
+                matchLabels:
+                  gateway-access: "true"
+          listeners:
+            # Keep this placeholder inert; application routes attach through ListenerSets.
+            - name: default
+              port: 80
+              protocol: HTTP
+              allowedRoutes:
+                namespaces:
+                  from: Selector
+                  selector:
+                    matchExpressions:
+                      - key: kubernetes.io/metadata.name
+                        operator: DoesNotExist
+      - apiVersion: external-secrets.io/v1
+        kind: ExternalSecret
+        metadata:
+          name: {{ $settings.cloudflareTunnelSecretName | quote }}
+          namespace: {{ $namespace | quote }}
+        spec:
+          data:
+            - remoteRef:
+                key: {{ $tunnelItem | quote }}
+                property: {{ $settings.cloudflareTunnelTokenField | quote }}
+              secretKey: token
+          refreshInterval: 1h
+          secretStoreRef:
+            kind: ClusterSecretStore
+            name: {{ $settings.secretStoreName | quote }}
+          target:
+            creationPolicy: Owner
+            name: {{ $settings.cloudflareTunnelSecretName | quote }}
+      - apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: cloudflared
+          namespace: {{ $namespace | quote }}
+        data:
+          # Locally-managed tunnel (config_src local): a remotely-managed one ignores these
+          # ingress rules for the dashboard's. Every hostname goes to the Gateway's Envoy,
+          # which routes on the Host header. Cloudflare's edge terminates TLS, so the origin
+          # is the Gateway's plain-HTTP port.
+          config.yaml: |
+            tunnel: {{ $tunnelId }}
+            no-autoupdate: true
+            metrics: 0.0.0.0:2000
+            ingress:
+              - service: {{ printf "http://cilium-gateway-%s.%s.svc.cluster.local:80" $gateway $namespace }}
+      - apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: cloudflared
+          namespace: {{ $namespace | quote }}
+          annotations:
+            reloader.stakater.com/auto: "true"
+        spec:
+          replicas: {{ $settings.cloudflaredReplicas }}
+          selector:
+            matchLabels:
+              app.kubernetes.io/name: cloudflared
+          template:
+            metadata:
+              labels:
+                app.kubernetes.io/name: cloudflared
+              annotations:
+                prometheus.io/path: /metrics
+                prometheus.io/port: "2000"
+                prometheus.io/scrape: "true"
+            spec:
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 65532
+                seccompProfile:
+                  type: RuntimeDefault
+                # Lets cloudflared open ICMP sockets for proxied ping without privileges.
+                sysctls:
+                  - name: net.ipv4.ping_group_range
+                    value: "65532 65532"
+              topologySpreadConstraints:
+                - maxSkew: 1
+                  topologyKey: kubernetes.io/hostname
+                  whenUnsatisfiable: ScheduleAnyway
+                  labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: cloudflared
+              containers:
+                - name: cloudflared
+                  image: {{ $settings.cloudflaredImage | quote }}
+                  args:
+                    - tunnel
+                    - --config
+                    - /etc/cloudflared/config.yaml
+                    - run
+                  env:
+                    # Read by `tunnel run` in place of a credentials file.
+                    - name: TUNNEL_TOKEN
+                      valueFrom:
+                        secretKeyRef:
+                          name: {{ $settings.cloudflareTunnelSecretName | quote }}
+                          key: token
+                  ports:
+                    - name: metrics
+                      containerPort: 2000
+                  # /ready is 200 once the replica holds at least one edge connection.
+                  readinessProbe:
+                    httpGet:
+                      path: /ready
+                      port: metrics
+                    periodSeconds: 10
+                  livenessProbe:
+                    httpGet:
+                      path: /ready
+                      port: metrics
+                    initialDelaySeconds: 10
+                    periodSeconds: 10
+                    failureThreshold: 3
+                  resources:
+                    requests:
+                      cpu: 10m
+                      memory: 64Mi
+                    limits:
+                      memory: 256Mi
+                  securityContext:
+                    allowPrivilegeEscalation: false
+                    readOnlyRootFilesystem: true
+                    capabilities:
+                      drop:
+                        - ALL
+                  volumeMounts:
+                    - name: config
+                      mountPath: /etc/cloudflared
+                      readOnly: true
+              volumes:
+                - name: config
+                  configMap:
+                    name: cloudflared
+      - apiVersion: policy/v1
+        kind: PodDisruptionBudget
+        metadata:
+          name: cloudflared
+          namespace: {{ $namespace | quote }}
+        spec:
+          maxUnavailable: 1
+          selector:
+            matchLabels:
+              app.kubernetes.io/name: cloudflared
   kro: |
     deployment:
       podAnnotations:
@@ -1089,9 +1309,13 @@ applicationValues:
             bootstrap.projectsveltos.io/rgd-hash: {{ (getResource "BootstrapSettings").data.gatewayRouteRgdHash | quote }}
         spec:
           resources:
-            # The gateway's Tailscale proxy reports both its tailnet IP and its .ts.net
-            # name. Routes publish only the IP: a public CNAME into MagicDNS can't resolve.
+            # spec.gateway picks one of two Gateways; only that one is part of the graph.
+            # tailscale: the tailnet-only Gateway. Its Tailscale proxy reports both its tailnet
+            # IP and its .ts.net name. Routes publish only the IP: a public CNAME into
+            # MagicDNS can't resolve.
             - id: gateway
+              includeWhen:
+                - ${schema.spec.gateway == "tailscale"}
               externalRef:
                 apiVersion: gateway.networking.k8s.io/v1
                 kind: Gateway
@@ -1100,8 +1324,27 @@ applicationValues:
                   namespace: {{ (getResource "BootstrapSettings").data.gatewayNamespace | quote }}
               readyWhen:
                 - ${gateway.status.?addresses.orValue([]).exists(a, a.type == "IPAddress")}
+            # cloudflare: the public Gateway behind the cluster's Cloudflare Tunnel (the
+            # cloudflare-tunnel profile; absent unless the cluster opted in, so its routes wait
+            # here). Its target annotation is the tunnel's CNAME target.
+            - id: cloudflareGateway
+              includeWhen:
+                - ${schema.spec.gateway == "cloudflare"}
+              externalRef:
+                apiVersion: gateway.networking.k8s.io/v1
+                kind: Gateway
+                metadata:
+                  name: {{ (getResource "BootstrapSettings").data.cloudflareGatewayName | quote }}
+                  namespace: {{ (getResource "BootstrapSettings").data.gatewayNamespace | quote }}
+              readyWhen:
+                - ${cloudflareGateway.metadata.?annotations[?"external-dns.kubernetes.io/target"].orValue("") != ""}
+                - ${cloudflareGateway.status.?conditions.orValue([]).exists(c, c.type == "Programmed" && c.status == "True")}
+            # The rest of the Tailscale-only graph: Envoy terminates TLS with a cert-manager
+            # certificate. Cloudflare routes skip it: Cloudflare's edge terminates TLS and
+            # cloudflared forwards plain HTTP, so `tls` does not apply to them.
             - id: certificate
               includeWhen:
+                - ${schema.spec.gateway == "tailscale"}
                 - ${schema.spec.tls}
               readyWhen:
                 # cert-manager issued the certificate (tls=false excludes this resource, and kro
@@ -1122,6 +1365,7 @@ applicationValues:
                   secretName: ${schema.spec.?name.orValue(schema.metadata.name)}-tls
             - id: listenerSetTLS
               includeWhen:
+                - ${schema.spec.gateway == "tailscale"}
                 - ${schema.spec.tls}
               readyWhen:
                 # The Gateway admitted the listeners: False/NotAllowed when the namespace lacks
@@ -1163,6 +1407,7 @@ applicationValues:
                     namespace: {{ (getResource "BootstrapSettings").data.gatewayNamespace | quote }}
             - id: listenerSetHTTP
               includeWhen:
+                - ${schema.spec.gateway == "tailscale"}
                 - ${!schema.spec.tls}
               readyWhen:
                 # The Gateway admitted the listeners: False/NotAllowed when the namespace lacks
@@ -1191,8 +1436,41 @@ applicationValues:
                     kind: Gateway
                     name: {{ (getResource "BootstrapSettings").data.gatewayName | quote }}
                     namespace: {{ (getResource "BootstrapSettings").data.gatewayNamespace | quote }}
+            # The public route's only listener: cloudflared dials the Gateway's port 80 for
+            # every hostname, so there is no HTTPS listener or redirect (the edge does both).
+            - id: listenerSetCloudflare
+              includeWhen:
+                - ${schema.spec.gateway == "cloudflare"}
+              readyWhen:
+                # The Gateway admitted the listeners: False/NotAllowed when the namespace lacks
+                # the gateway-access label, or on a hostname/port conflict.
+                - ${listenerSetCloudflare.?status.?conditions.orValue([]).exists(c, c.type == "Accepted" && c.status == "True")}
+                - ${listenerSetCloudflare.?status.?conditions.orValue([]).exists(c, c.type == "Programmed" && c.status == "True")}
+              template:
+                apiVersion: gateway.networking.k8s.io/v1
+                kind: ListenerSet
+                metadata:
+                  name: ${schema.spec.?name.orValue(schema.metadata.name)}
+                  namespace: ${schema.metadata.namespace}
+                  annotations:
+                    external-dns.kubernetes.io/target: ${cloudflareGateway.metadata.annotations["external-dns.kubernetes.io/target"]}
+                spec:
+                  listeners:
+                    - allowedRoutes:
+                        namespaces:
+                          from: Same
+                      hostname: ${schema.spec.hostname}
+                      name: ${schema.spec.?name.orValue(schema.metadata.name)}
+                      port: 80
+                      protocol: HTTP
+                  parentRef:
+                    group: gateway.networking.k8s.io
+                    kind: Gateway
+                    name: ${cloudflareGateway.metadata.name}
+                    namespace: ${cloudflareGateway.metadata.namespace}
             - id: httpsRedirect
               includeWhen:
+                - ${schema.spec.gateway == "tailscale"}
                 - ${schema.spec.tls}
               readyWhen:
                 # Every parent accepted the route and every backendRef resolved (missing Service,
@@ -1239,6 +1517,8 @@ applicationValues:
                 metadata:
                   annotations:
                     external-dns.kubernetes.io/enabled: "true"
+                    # Public routes' records go through Cloudflare's proxy to reach the tunnel.
+                    external-dns.kubernetes.io/cloudflare-proxied: '${schema.spec.gateway == "cloudflare" ? "true" : "false"}'
                   name: ${schema.spec.?name.orValue(schema.metadata.name)}
                   namespace: ${schema.metadata.namespace}
                 spec:
@@ -1281,6 +1561,8 @@ applicationValues:
                 metadata:
                   annotations:
                     external-dns.kubernetes.io/enabled: "true"
+                    # Public routes' records go through Cloudflare's proxy to reach the tunnel.
+                    external-dns.kubernetes.io/cloudflare-proxied: '${schema.spec.gateway == "cloudflare" ? "true" : "false"}'
                   name: ${schema.spec.?name.orValue(schema.metadata.name)}
                   namespace: ${schema.metadata.namespace}
                 spec:
@@ -1348,6 +1630,13 @@ applicationValues:
             apiVersion: v1alpha1
             kind: GatewayRoute
             spec:
+              # Which Gateway serves the route; required, no default, so every route states
+              # its exposure. tailscale: tailnet only (DNS -> the gateway's tailnet IP).
+              # cloudflare: the public internet through the cluster's Cloudflare Tunnel
+              # (DNS -> proxied CNAME to the tunnel; TLS at Cloudflare's edge, so `tls` is
+              # ignored, and the hostname needs an edge certificate: Universal SSL covers
+              # only one label under the zone apex).
+              gateway: 'string | required=true enum="tailscale,cloudflare" description="Gateway serving the route - tailscale (tailnet only) or cloudflare (public, via Cloudflare Tunnel)."'
               hostname: string
               # Prefix of every generated resource; defaults to metadata.name.
               name: string
@@ -1355,6 +1644,8 @@ applicationValues:
               servicePort: integer | default=80
               # Limits the route to one API, e.g. Mimir's push endpoint without its query API.
               pathPrefix: string | default="/"
+              # Tailscale routes only: HTTPS with a cert-manager certificate and an HTTP
+              # redirect, or plain HTTP when false.
               tls: boolean | default=true
               # Gateway API HTTPRoute rule timeouts (durations like "30s", "5m", "0s" =
               # disabled). No CRD defaults, so unset fields never show up as GitOps drift.
@@ -1387,17 +1678,23 @@ applicationValues:
                 podSelector: "map[string]string"
             status:
               # Where the route is served, e.g. https://grafana.lab.danielbooth.cloud.
+              # Cloudflare routes are always HTTPS (the edge terminates TLS).
               url: >-
-                ${(schema.spec.tls ? "https://" : "http://") + schema.spec.hostname
+                ${(schema.spec.gateway == "cloudflare" || schema.spec.tls ? "https://" : "http://")
+                + schema.spec.hostname
                 + (schema.spec.pathPrefix == "/" ? "" : schema.spec.pathPrefix)}
-              # The Tailscale gateway's .ts.net DNS name, falling back to its tailnet IP
-              # if it reports no hostname. (The external-dns target annotations above keep
+              # tailscale: the gateway's .ts.net DNS name, falling back to its tailnet IP if
+              # it reports no hostname. (The external-dns target annotations above keep
               # using the IP: a public CNAME into MagicDNS can't resolve.)
+              # cloudflare: the tunnel's CNAME target. Only the selected gateway is in the
+              # graph; the other unwraps to empty through the optional chains.
               address: >-
-                ${gateway.status.?addresses.orValue([]).filter(a, a.type == "Hostname").size() > 0
-                ? gateway.status.addresses.filter(a, a.type == "Hostname")[0].value
-                : gateway.status.?addresses.orValue([]).filter(a, a.type == "IPAddress").size() > 0
-                ? gateway.status.addresses.filter(a, a.type == "IPAddress")[0].value
+                ${schema.spec.gateway == "cloudflare"
+                ? cloudflareGateway.?metadata.?annotations[?"external-dns.kubernetes.io/target"].orValue("")
+                : gateway.?status.?addresses.orValue([]).filter(a, a.type == "Hostname").size() > 0
+                ? gateway.?status.?addresses.orValue([]).filter(a, a.type == "Hostname")[0].value
+                : gateway.?status.?addresses.orValue([]).filter(a, a.type == "IPAddress").size() > 0
+                ? gateway.?status.?addresses.orValue([]).filter(a, a.type == "IPAddress")[0].value
                 : ""}
               # cert-manager's Ready condition reason ("Issued"). The ternary guards the
               # empty-list index for tls=false instances, where the certificate resource
@@ -1413,8 +1710,11 @@ applicationValues:
               - name: Ready
                 type: string
                 jsonPath: .status.conditions[?(@.type=="Ready")].status
+              - name: Gateway
+                type: string
+                jsonPath: .spec.gateway
               # priority 1 = only shown with -o wide. Address is the public hostname the
-              # route serves; the gateway's tailnet address stays in .status.address.
+              # route serves; the gateway's address stays in .status.address.
               - name: Address
                 type: string
                 jsonPath: .spec.hostname

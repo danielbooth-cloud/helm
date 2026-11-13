@@ -126,13 +126,14 @@ data:
         targetRevision: {{ "{{ (getResource \"ClusterConfig\").data.argocdRepoBranch }}" }}
         path: {{ "{{ (getResource \"ClusterConfig\").data.argocdRepoPath }}" }}
   route.yaml: |
-    # kro publishes the route's DNS record to the gateway's Tailscale IP.
+    # Tailnet only: kro publishes the route's DNS record to the gateway's Tailscale IP.
     apiVersion: kro.run/v1alpha1
     kind: GatewayRoute
     metadata:
       name: argocd
       namespace: {{ .Values.namespaces.argocd }}
     spec:
+      gateway: tailscale
       hostname: {{ "{{ (getResource \"ClusterConfig\").data.argocdDomain }}" }}
       serviceName: argocd-server
       servicePort: 8080
