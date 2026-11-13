@@ -185,6 +185,41 @@ applicationValues:
           clientID: ${{ (getResource "ClusterConfig").data.argocdOidcSecretName }}:clientID
           clientSecret: ${{ (getResource "ClusterConfig").data.argocdOidcSecretName }}:clientSecret
           requestedScopes: ["openid", "email", "profile"]
+        # Argo CD 3.6 ships a built-in Kro instance health check (kro.run/_): no status =
+        # Progressing, and Ready conditions only count when observedGeneration matches the
+        # local generation. Neither holds for a vCluster's GatewayRoute: kro only reconciles
+        # the host-side mirror, and the status back-fill copies the host's conditions over
+        # verbatim, so their observedGeneration can never match the local generation. This
+        # kind-level override replaces the wildcard check and drops the generation gate: the
+        # back-filled status is the real signal (Ready=True/Active = Healthy, Failed/Error =
+        # Degraded), so no per-app ignore-healthcheck annotation is needed.
+        resource.customizations.health.kro.run_GatewayRoute: |
+          hs = {}
+          state = ""
+          ready = false
+          message = ""
+          if obj.status ~= nil then
+            if obj.status.state ~= nil then state = obj.status.state end
+            if obj.status.conditions ~= nil then
+              for _, condition in ipairs(obj.status.conditions) do
+                if condition.type == "Ready" then
+                  ready = condition.status == "True"
+                  if condition.message ~= nil then message = condition.message end
+                end
+              end
+            end
+          end
+          if ready or state == "Active" then
+            hs.status = "Healthy"
+            hs.message = message
+          elseif state == "Failed" or state == "Error" then
+            hs.status = "Degraded"
+            hs.message = message
+          else
+            hs.status = "Progressing"
+            hs.message = "waiting for GatewayRoute status"
+          end
+          return hs
       rbac:
         # tsidp asserts no groups, so the policy is matched on the email claim.
         policy.default: {{ (getResource "ClusterConfig").data.argocdRbacDefault | quote }}
@@ -222,6 +257,10 @@ applicationValues:
         # argocd-cm names the OIDC client Secret instead of referencing it, so auto-reload cannot see it.
         secret.reloader.stakater.com/reload: {{ (getResource "ClusterConfig").data.argocdOidcSecretName | quote }}
       service:
+        # Advertised to the Cluster Mesh, so every peer's selectorless argocd-server stub
+        # (argocd-mesh) resolves to the hub's pods; the hub has the only endpoints.
+        annotations:
+          service.cilium.io/global: "true"
         # Extra port on the same container port only because the kro GatewayRoute targets
         # 8080. The appProtocol MUST stay HTTP/1.1: argocd-server's 8080 serves REST and
         # gRPC-web over h1 and resets raw h2c, so an h2c appProtocol makes Cilium's Envoy
@@ -269,6 +308,35 @@ applicationValues:
             - mountPath: /home/argocd/cmp-server/config/plugin.yaml
               name: cmp-helmfile
               subPath: helmfile.yaml
+  argocd-mesh: |
+    resources:
+      # Selectorless stub of the hub's Cluster Mesh global argocd-server: no local
+      # endpoints, Cilium resolves it to the management cluster's pods over the mesh.
+      # Ports mirror the hub's Service (all targeting argocd-server's plaintext 8080).
+      - apiVersion: v1
+        kind: Service
+        metadata:
+          name: argocd-server
+          namespace: {{ .Values.namespaces.argocd | quote }}
+          annotations:
+            service.cilium.io/global: "true"
+            # Never advertise: this cluster contributes no endpoints of its own.
+            service.cilium.io/shared: "false"
+        spec:
+          type: ClusterIP
+          ports:
+            - name: http
+              port: 80
+              targetPort: 8080
+              protocol: TCP
+            - name: https
+              port: 443
+              targetPort: 8080
+              protocol: TCP
+            - name: http2
+              port: 8080
+              targetPort: 8080
+              protocol: TCP
   mimir-gateway: |
     resources:
       # ClusterMesh global Service shim: no selector, no local endpoints. Cilium adds the

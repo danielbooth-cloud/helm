@@ -1,0 +1,15 @@
+{{- /* Rendered by the event-manager: .Resource is the host's mirrored GatewayRoute. Its
+labels/annotations carry the source vCluster's identity (stamped by the forward mirror), so
+the vCluster copy is addressed without reversing the mirror's name mapping. */ -}}
+{{- $annotations := .Resource.metadata.annotations }}
+apiVersion: kro.run/v1alpha1
+kind: GatewayRoute
+metadata:
+  name: {{ index $annotations "bootstrap.projectsveltos.io/route-name" | quote }}
+  namespace: {{ index $annotations "bootstrap.projectsveltos.io/route-namespace" | quote }}
+spec:
+  {{- (index $annotations "bootstrap.projectsveltos.io/route-spec") | fromYaml | toYaml | nindent 2 }}
+status:
+  {{- with .Resource.status }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
