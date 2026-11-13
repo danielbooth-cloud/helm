@@ -1105,6 +1105,9 @@ applicationValues:
                             statusCode: 301
                           type: RequestRedirect
             - id: route
+              includeWhen:
+                # No auth proxy configured: backend is the target service directly.
+                - ${schema.spec.?authProxy.?backendRef.?name.orValue("") == ""}
               template:
                 apiVersion: gateway.networking.k8s.io/v1
                 kind: HTTPRoute
@@ -1129,6 +1132,76 @@ applicationValues:
                       backendRefs:
                         - name: ${schema.spec.serviceName}
                           port: ${schema.spec.servicePort}
+            - id: routeAuthProxy
+              includeWhen:
+                # Auth proxy configured: backend is the existing proxy Service, which
+                # authenticates the user (redirect flow, session cookie) and forwards to
+                # the target service. Mutually exclusive with `route` above.
+                - ${schema.spec.?authProxy.?backendRef.?name.orValue("") != ""}
+              template:
+                apiVersion: gateway.networking.k8s.io/v1
+                kind: HTTPRoute
+                metadata:
+                  annotations:
+                    external-dns.kubernetes.io/enabled: "true"
+                  name: ${schema.spec.name}
+                  namespace: ${schema.metadata.namespace}
+                spec:
+                  hostnames:
+                    - ${schema.spec.hostname}
+                  parentRefs:
+                    - group: gateway.networking.k8s.io
+                      kind: ListenerSet
+                      name: ${schema.spec.name}
+                      sectionName: ${schema.spec.name}
+                  rules:
+                    - matches:
+                        - path:
+                            type: PathPrefix
+                            value: ${schema.spec.pathPrefix}
+                      backendRefs:
+                        - name: ${schema.spec.authProxy.backendRef.name}
+                          # Empty namespace means same-namespace; emit it explicitly.
+                          namespace: ${schema.spec.authProxy.backendRef.?namespace.orValue(schema.metadata.namespace)}
+                          port: ${schema.spec.authProxy.backendRef.port}
+            - id: authProxyReferenceGrant
+              includeWhen:
+                - ${schema.spec.?authProxy.?backendRef.?name.orValue("") != ""}
+                # Only cross-namespace backend references need a grant.
+                - ${schema.spec.?authProxy.?backendRef.?namespace.orValue("") != ""}
+              template:
+                apiVersion: gateway.networking.k8s.io/v1beta1
+                kind: ReferenceGrant
+                metadata:
+                  name: ${schema.spec.name}-authproxy
+                  namespace: ${schema.spec.authProxy.backendRef.namespace}
+                spec:
+                  from:
+                    - group: gateway.networking.k8s.io
+                      kind: HTTPRoute
+                      namespace: ${schema.metadata.namespace}
+                  to:
+                    - group: ""
+                      kind: Service
+                      name: ${schema.spec.authProxy.backendRef.name}
+            - id: authProxyLockdown
+              includeWhen:
+                # Pod labels supplied: lock the app to cluster-internal ingress. Blocks
+                # gateway-Envoy (reserved:ingress) traffic to the app directly; external
+                # callers must go through the auth proxy, in-cluster callers are unaffected.
+                - ${schema.spec.?authProxy.?podSelector.orValue([]).size() > 0}
+              template:
+                apiVersion: cilium.io/v2
+                kind: CiliumNetworkPolicy
+                metadata:
+                  name: ${schema.spec.name}-auth-proxy-locked
+                  namespace: ${schema.metadata.namespace}
+                spec:
+                  endpointSelector:
+                    matchExpressions: "${schema.spec.authProxy.podSelector.map(p, {\"key\": p.key, \"operator\": \"In\", \"values\": [p.value]})}"
+                  ingress:
+                    - fromEntities:
+                        - cluster
           schema:
             apiVersion: v1alpha1
             kind: GatewayRoute
@@ -1140,9 +1213,38 @@ applicationValues:
               # Limits the route to one API, e.g. Mimir's push endpoint without its query API.
               pathPrefix: string | default="/"
               tls: boolean | default=true
+              # Optional oauth2-proxy in front of the route. Omitted/null = disabled: the
+              # route behaves exactly as before. The proxy is NOT deployed by this RGD; it
+              # must already exist (in-cluster or reachable via ClusterMesh). When set, the
+              # route's backend becomes the proxy Service, which authenticates the user and
+              # forwards to the target service.
+              authProxy:
+                # The existing auth proxy Service. Empty name = auth proxy disabled.
+                backendRef:
+                  name: string | default=""
+                  # Empty = the route's own namespace (no ReferenceGrant needed then).
+                  namespace: string | default=""
+                  port: integer | default=4180
+                # Optional lockdown: pod labels of the target service's pods. When set, a
+                # CiliumNetworkPolicy allows ingress to those pods from cluster entities
+                # only. The gateway's Envoy carries Cilium's reserved ingress identity, so
+                # external callers can no longer reach the app directly — they must go
+                # through the auth proxy (whose pods are cluster entities), while in-cluster
+                # API callers keep working unchanged. Array of {key, value} pod-label pairs,
+                # rendered as endpointSelector matchExpressions (key In [value]).
+                # Host-cluster workloads only: vCluster-mirrored routes proxy to
+                # ClusterMesh Services whose pods are not selectable from the host.
+                podSelector: array
             status:
-              # The Tailscale gateway IP the route's DNS records are published against.
-              address: ${gateway.status.addresses.filter(a, a.type == "IPAddress")[0].value}
+              # The Tailscale gateway's .ts.net DNS name, falling back to its tailnet IP
+              # if it reports no hostname. (The external-dns target annotations above keep
+              # using the IP: a public CNAME into MagicDNS can't resolve.)
+              address: >-
+                ${gateway.status.?addresses.orValue([]).filter(a, a.type == "Hostname").size() > 0
+                ? gateway.status.addresses.filter(a, a.type == "Hostname")[0].value
+                : gateway.status.?addresses.orValue([]).filter(a, a.type == "IPAddress").size() > 0
+                ? gateway.status.addresses.filter(a, a.type == "IPAddress")[0].value
+                : ""}
               # cert-manager's Ready condition reason ("Issued"). The ternary guards the
               # empty-list index for tls=false instances, where the certificate resource
               # is not part of the graph and the optional chain unwraps to an empty list.
@@ -1163,6 +1265,9 @@ applicationValues:
               - name: Certificate
                 type: string
                 jsonPath: .status.certificate
+              - name: AuthProxy
+                type: string
+                jsonPath: .spec.authProxy.backendRef.name
               - name: Age
                 type: date
                 jsonPath: .metadata.creationTimestamp
