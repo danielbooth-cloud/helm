@@ -7,7 +7,8 @@ metadata:
     {{- include "universal.labels" . | nindent 4 }}
   {{- if .Values.reloader.enabled }}
   annotations:
-    configmap.reloader.stakater.com/reload: "{{ include "universal.name" . }}-config"
+    # Auto watches every ConfigMap AND Secret the workload references.
+    reloader.stakater.com/auto: "true"
   {{- end }}
 spec:
   {{- if not .Values.autoscaling.enabled }}

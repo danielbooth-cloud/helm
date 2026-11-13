@@ -224,6 +224,13 @@ applicationValues:
             hs.message = "waiting for GatewayRoute status"
           end
           return hs
+        # Deep link on every GatewayRoute in the Argo CD UI, from the route's status.url.
+        # The {{ "{{" }} escapes keep Argo CD's own template out of Sveltos' rendering.
+        resource.links: |
+          - title: Open
+            url: '{{ "{{" }}.resource.status.url{{ "}}" }}'
+            icon.class: fa-external-link
+            if: resource.apiVersion == "kro.run/v1alpha1" && resource.kind == "GatewayRoute" && resource.status != nil && resource.status.url != nil
       rbac:
         # tsidp asserts no groups, so the policy is matched on the email claim.
         policy.default: {{ (getResource "ClusterConfig").data.argocdRbacDefault | quote }}
@@ -1093,11 +1100,15 @@ applicationValues:
             - id: certificate
               includeWhen:
                 - ${schema.spec.tls}
+              readyWhen:
+                # cert-manager issued the certificate (tls=false excludes this resource, and kro
+                # skips readiness for excluded resources).
+                - ${certificate.?status.?conditions.orValue([]).exists(c, c.type == "Ready" && c.status == "True")}
               template:
                 apiVersion: cert-manager.io/v1
                 kind: Certificate
                 metadata:
-                  name: ${schema.spec.name}-tls
+                  name: ${schema.spec.?name.orValue(schema.metadata.name)}-tls
                   namespace: ${schema.metadata.namespace}
                 spec:
                   dnsNames:
@@ -1105,15 +1116,20 @@ applicationValues:
                   issuerRef:
                     kind: ClusterIssuer
                     name: {{ (getResource "BootstrapSettings").data.issuerName | quote }}
-                  secretName: ${schema.spec.name}-tls
+                  secretName: ${schema.spec.?name.orValue(schema.metadata.name)}-tls
             - id: listenerSetTLS
               includeWhen:
                 - ${schema.spec.tls}
+              readyWhen:
+                # The Gateway admitted the listeners: False/NotAllowed when the namespace lacks
+                # the gateway-access label, or on a hostname/port conflict.
+                - ${listenerSetTLS.?status.?conditions.orValue([]).exists(c, c.type == "Accepted" && c.status == "True")}
+                - ${listenerSetTLS.?status.?conditions.orValue([]).exists(c, c.type == "Programmed" && c.status == "True")}
               template:
                 apiVersion: gateway.networking.k8s.io/v1
                 kind: ListenerSet
                 metadata:
-                  name: ${schema.spec.name}
+                  name: ${schema.spec.?name.orValue(schema.metadata.name)}
                   namespace: ${schema.metadata.namespace}
                   annotations:
                     external-dns.kubernetes.io/target: ${gateway.status.addresses.filter(a, a.type == "IPAddress")[0].value}
@@ -1123,18 +1139,18 @@ applicationValues:
                         namespaces:
                           from: Same
                       hostname: ${schema.spec.hostname}
-                      name: ${schema.spec.name}
+                      name: ${schema.spec.?name.orValue(schema.metadata.name)}
                       port: 443
                       protocol: HTTPS
                       tls:
                         certificateRefs:
-                          - name: ${schema.spec.name}-tls
+                          - name: ${schema.spec.?name.orValue(schema.metadata.name)}-tls
                         mode: Terminate
                     - allowedRoutes:
                         namespaces:
                           from: Same
                       hostname: ${schema.spec.hostname}
-                      name: ${schema.spec.name}-http
+                      name: ${schema.spec.?name.orValue(schema.metadata.name)}-http
                       port: 80
                       protocol: HTTP
                   parentRef:
@@ -1145,11 +1161,16 @@ applicationValues:
             - id: listenerSetHTTP
               includeWhen:
                 - ${!schema.spec.tls}
+              readyWhen:
+                # The Gateway admitted the listeners: False/NotAllowed when the namespace lacks
+                # the gateway-access label, or on a hostname/port conflict.
+                - ${listenerSetHTTP.?status.?conditions.orValue([]).exists(c, c.type == "Accepted" && c.status == "True")}
+                - ${listenerSetHTTP.?status.?conditions.orValue([]).exists(c, c.type == "Programmed" && c.status == "True")}
               template:
                 apiVersion: gateway.networking.k8s.io/v1
                 kind: ListenerSet
                 metadata:
-                  name: ${schema.spec.name}
+                  name: ${schema.spec.?name.orValue(schema.metadata.name)}
                   namespace: ${schema.metadata.namespace}
                   annotations:
                     external-dns.kubernetes.io/target: ${gateway.status.addresses.filter(a, a.type == "IPAddress")[0].value}
@@ -1159,7 +1180,7 @@ applicationValues:
                         namespaces:
                           from: Same
                       hostname: ${schema.spec.hostname}
-                      name: ${schema.spec.name}
+                      name: ${schema.spec.?name.orValue(schema.metadata.name)}
                       port: 80
                       protocol: HTTP
                   parentRef:
@@ -1170,11 +1191,18 @@ applicationValues:
             - id: httpsRedirect
               includeWhen:
                 - ${schema.spec.tls}
+              readyWhen:
+                # Every parent accepted the route and every backendRef resolved (missing Service,
+                # wrong port, or a cross-namespace ref without its ReferenceGrant).
+                - >-
+                  ${httpsRedirect.?status.?parents.orValue([]).size() > 0
+                  && httpsRedirect.?status.?parents.orValue([]).all(p, p.?conditions.orValue([]).exists(c, c.type == "Accepted" && c.status == "True"))
+                  && httpsRedirect.?status.?parents.orValue([]).all(p, p.?conditions.orValue([]).exists(c, c.type == "ResolvedRefs" && c.status == "True"))}
               template:
                 apiVersion: gateway.networking.k8s.io/v1
                 kind: HTTPRoute
                 metadata:
-                  name: ${schema.spec.name}-https-redirect
+                  name: ${schema.spec.?name.orValue(schema.metadata.name)}-https-redirect
                   namespace: ${schema.metadata.namespace}
                 spec:
                   hostnames:
@@ -1182,8 +1210,8 @@ applicationValues:
                   parentRefs:
                     - group: gateway.networking.k8s.io
                       kind: ListenerSet
-                      name: ${schema.spec.name}
-                      sectionName: ${schema.spec.name}-http
+                      name: ${schema.spec.?name.orValue(schema.metadata.name)}
+                      sectionName: ${schema.spec.?name.orValue(schema.metadata.name)}-http
                   rules:
                     - filters:
                         - requestRedirect:
@@ -1195,13 +1223,20 @@ applicationValues:
               includeWhen:
                 # No auth proxy configured: backend is the target service directly.
                 - ${schema.spec.?authProxy.?backendRef.?name.orValue("") == ""}
+              readyWhen:
+                # Every parent accepted the route and every backendRef resolved (missing Service,
+                # wrong port, or a cross-namespace ref without its ReferenceGrant).
+                - >-
+                  ${route.?status.?parents.orValue([]).size() > 0
+                  && route.?status.?parents.orValue([]).all(p, p.?conditions.orValue([]).exists(c, c.type == "Accepted" && c.status == "True"))
+                  && route.?status.?parents.orValue([]).all(p, p.?conditions.orValue([]).exists(c, c.type == "ResolvedRefs" && c.status == "True"))}
               template:
                 apiVersion: gateway.networking.k8s.io/v1
                 kind: HTTPRoute
                 metadata:
                   annotations:
                     external-dns.kubernetes.io/enabled: "true"
-                  name: ${schema.spec.name}
+                  name: ${schema.spec.?name.orValue(schema.metadata.name)}
                   namespace: ${schema.metadata.namespace}
                 spec:
                   hostnames:
@@ -1209,13 +1244,18 @@ applicationValues:
                   parentRefs:
                     - group: gateway.networking.k8s.io
                       kind: ListenerSet
-                      name: ${schema.spec.name}
-                      sectionName: ${schema.spec.name}
+                      name: ${schema.spec.?name.orValue(schema.metadata.name)}
+                      sectionName: ${schema.spec.?name.orValue(schema.metadata.name)}
                   rules:
                     - matches:
                         - path:
                             type: PathPrefix
                             value: ${schema.spec.pathPrefix}
+                      # Omitted fields keep Envoy's defaults (a 15s route timeout, which cuts
+                      # off streams: SSE, LLM responses, long queries); "0s" disables one.
+                      # Optional map entries (?key) drop unset fields; the space after ${ keeps
+                      # "{{" out of this Sveltos template.
+                      timeouts: '${ {?"request": schema.spec.?timeouts.?request, ?"backendRequest": schema.spec.?timeouts.?backendRequest} }'
                       backendRefs:
                         - name: ${schema.spec.serviceName}
                           port: ${schema.spec.servicePort}
@@ -1225,13 +1265,20 @@ applicationValues:
                 # authenticates the user (redirect flow, session cookie) and forwards to
                 # the target service. Mutually exclusive with `route` above.
                 - ${schema.spec.?authProxy.?backendRef.?name.orValue("") != ""}
+              readyWhen:
+                # Every parent accepted the route and every backendRef resolved (missing Service,
+                # wrong port, or a cross-namespace ref without its ReferenceGrant).
+                - >-
+                  ${routeAuthProxy.?status.?parents.orValue([]).size() > 0
+                  && routeAuthProxy.?status.?parents.orValue([]).all(p, p.?conditions.orValue([]).exists(c, c.type == "Accepted" && c.status == "True"))
+                  && routeAuthProxy.?status.?parents.orValue([]).all(p, p.?conditions.orValue([]).exists(c, c.type == "ResolvedRefs" && c.status == "True"))}
               template:
                 apiVersion: gateway.networking.k8s.io/v1
                 kind: HTTPRoute
                 metadata:
                   annotations:
                     external-dns.kubernetes.io/enabled: "true"
-                  name: ${schema.spec.name}
+                  name: ${schema.spec.?name.orValue(schema.metadata.name)}
                   namespace: ${schema.metadata.namespace}
                 spec:
                   hostnames:
@@ -1239,13 +1286,18 @@ applicationValues:
                   parentRefs:
                     - group: gateway.networking.k8s.io
                       kind: ListenerSet
-                      name: ${schema.spec.name}
-                      sectionName: ${schema.spec.name}
+                      name: ${schema.spec.?name.orValue(schema.metadata.name)}
+                      sectionName: ${schema.spec.?name.orValue(schema.metadata.name)}
                   rules:
                     - matches:
                         - path:
                             type: PathPrefix
                             value: ${schema.spec.pathPrefix}
+                      # Omitted fields keep Envoy's defaults (a 15s route timeout, which cuts
+                      # off streams: SSE, LLM responses, long queries); "0s" disables one.
+                      # Optional map entries (?key) drop unset fields; the space after ${ keeps
+                      # "{{" out of this Sveltos template.
+                      timeouts: '${ {?"request": schema.spec.?timeouts.?request, ?"backendRequest": schema.spec.?timeouts.?backendRequest} }'
                       backendRefs:
                         - name: ${schema.spec.authProxy.backendRef.name}
                           # Empty namespace means same-namespace; emit it explicitly.
@@ -1260,7 +1312,7 @@ applicationValues:
                 apiVersion: gateway.networking.k8s.io/v1beta1
                 kind: ReferenceGrant
                 metadata:
-                  name: ${schema.spec.name}-authproxy
+                  name: ${schema.spec.?name.orValue(schema.metadata.name)}-authproxy
                   namespace: ${schema.spec.authProxy.backendRef.namespace}
                 spec:
                   from:
@@ -1281,7 +1333,7 @@ applicationValues:
                 apiVersion: cilium.io/v2
                 kind: CiliumNetworkPolicy
                 metadata:
-                  name: ${schema.spec.name}-auth-proxy-locked
+                  name: ${schema.spec.?name.orValue(schema.metadata.name)}-auth-proxy-locked
                   namespace: ${schema.metadata.namespace}
                 spec:
                   endpointSelector:
@@ -1294,12 +1346,18 @@ applicationValues:
             kind: GatewayRoute
             spec:
               hostname: string
+              # Prefix of every generated resource; defaults to metadata.name.
               name: string
               serviceName: string
               servicePort: integer | default=80
               # Limits the route to one API, e.g. Mimir's push endpoint without its query API.
               pathPrefix: string | default="/"
               tls: boolean | default=true
+              # Gateway API HTTPRoute rule timeouts (durations like "30s", "5m", "0s" =
+              # disabled). No CRD defaults, so unset fields never show up as GitOps drift.
+              timeouts:
+                request: string
+                backendRequest: string
               # Optional oauth2-proxy in front of the route. Omitted/null = disabled: the
               # route behaves exactly as before. The proxy is NOT deployed by this RGD; it
               # must already exist (in-cluster or reachable via ClusterMesh). When set, the
@@ -1325,6 +1383,10 @@ applicationValues:
                 # not selectable from the host.
                 podSelector: "map[string]string"
             status:
+              # Where the route is served, e.g. https://grafana.lab.danielbooth.cloud.
+              url: >-
+                ${(schema.spec.tls ? "https://" : "http://") + schema.spec.hostname
+                + (schema.spec.pathPrefix == "/" ? "" : schema.spec.pathPrefix)}
               # The Tailscale gateway's .ts.net DNS name, falling back to its tailnet IP
               # if it reports no hostname. (The external-dns target annotations above keep
               # using the IP: a public CNAME into MagicDNS can't resolve.)
@@ -1348,18 +1410,28 @@ applicationValues:
               - name: Ready
                 type: string
                 jsonPath: .status.conditions[?(@.type=="Ready")].status
+              # priority 1 = only shown with -o wide. Address is the public hostname the
+              # route serves; the gateway's tailnet address stays in .status.address.
               - name: Address
                 type: string
-                jsonPath: .status.address
+                jsonPath: .spec.hostname
+                priority: 1
+              - name: URL
+                type: string
+                jsonPath: .status.url
+                priority: 1
               - name: Certificate
                 type: string
                 jsonPath: .status.certificate
+                priority: 1
               - name: AuthProxy
                 type: string
                 jsonPath: .spec.authProxy.backendRef.name
+                priority: 1
               - name: Age
                 type: date
                 jsonPath: .metadata.creationTimestamp
+                priority: 1
   kubelet-csr-approver: |
     providerRegex: {{ (getResource "ClusterConfig").data.kubeletProviderRegex | quote }}
     providerIpPrefixes:

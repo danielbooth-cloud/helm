@@ -133,8 +133,11 @@ data:
       name: argocd
       namespace: {{ .Values.namespaces.argocd }}
     spec:
-      name: argocd
       hostname: {{ "{{ (getResource \"ClusterConfig\").data.argocdDomain }}" }}
       serviceName: argocd-server
       servicePort: 8080
+      # The UI's application watch is a long-lived SSE stream; Envoy's default 15s
+      # route timeout would cut it off and force constant reconnects.
+      timeouts:
+        request: "0s"
 {{- end }}

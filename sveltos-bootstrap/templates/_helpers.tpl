@@ -8,6 +8,10 @@ matchLabels:
   {{- if .clustermesh }}
   bootstrap.projectsveltos.io/clustermesh: "true"
   {{- end }}
+  {{- if .gatewayRouteApi }}
+  {{- /* Set by the gatewayroute-api Classifier once the GatewayRoute CRD is Established. */}}
+  bootstrap.projectsveltos.io/gatewayroute-api: "true"
+  {{- end }}
   {{- if .virtualOnly }}
   bootstrap.projectsveltos.io/virtual: "true"
   {{- end }}

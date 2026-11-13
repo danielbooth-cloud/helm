@@ -48,7 +48,7 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
 spec:
   sourceClusterSelector:
-    {{- include "bootstrap.clusterSelector" (dict "root" . "virtualOnly" true) | nindent 4 }}
+    {{- include "bootstrap.clusterSelector" (dict "root" . "virtualOnly" true "gatewayRouteApi" true) | nindent 4 }}
   # The host's SveltosCluster, recorded on the virtual one at registration.
   destinationCluster:
     kind: SveltosCluster

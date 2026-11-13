@@ -30,7 +30,7 @@ metadata:
 spec:
   # Hosts of vClusters: every non-virtual cluster. Only hosts carry labelled mirrors.
   sourceClusterSelector:
-    {{- include "bootstrap.clusterSelector" (dict "root" . "excludeVirtual" true) | nindent 4 }}
+    {{- include "bootstrap.clusterSelector" (dict "root" . "excludeVirtual" true "gatewayRouteApi" true) | nindent 4 }}
   # The source vCluster's SveltosCluster, stamped on the mirror by the forward trigger.
   destinationCluster:
     kind: SveltosCluster

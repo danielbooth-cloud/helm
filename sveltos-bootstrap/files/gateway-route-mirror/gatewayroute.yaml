@@ -9,7 +9,9 @@
 {{- end }}
 {{- /* The route must not use vCluster's naming: vCluster would claim kro's HTTPRoute as a synced
 copy and delete it. kro suffixes it (-tls, -https-redirect), so it stays well under 63. */ -}}
-{{- $route := printf "%s-%s-%s" $vcluster $namespace .Resource.spec.name }}
+{{- /* spec.name is optional and defaults to the route's own name, as in the RGD. */ -}}
+{{- $routeName := default .Resource.metadata.name (index .Resource.spec "name") }}
+{{- $route := printf "%s-%s-%s" $vcluster $namespace $routeName }}
 {{- if gt (len $route) 45 }}
 {{- $route = printf "%s-%s" (trunc 34 $route | trimSuffix "-") (trunc 10 (sha256sum $route)) }}
 {{- end }}

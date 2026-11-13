@@ -2,6 +2,16 @@
 labels/annotations carry the source vCluster's identity (stamped by the forward mirror), so
 the vCluster copy is addressed without reversing the mirror's name mapping. */ -}}
 {{- $annotations := .Resource.metadata.annotations }}
+{{- $destNamespace := index $annotations "bootstrap.projectsveltos.io/mirror-source-namespace" | default "" }}
+{{- $destName := index $annotations "bootstrap.projectsveltos.io/mirror-source-name" | default "" }}
+{{- /* Fail loudly instead of writing a stray GatewayRoute: the destination must be the
+source vCluster, never the host this mirror lives on (.Cluster). */ -}}
+{{- if or (eq $destNamespace "") (eq $destName "") }}
+{{- fail (printf "GatewayRoute %s/%s on %s/%s: mirror has no source vCluster annotations" .Resource.metadata.namespace .Resource.metadata.name .Cluster.metadata.namespace .Cluster.metadata.name) }}
+{{- end }}
+{{- if and (eq $destNamespace .Cluster.metadata.namespace) (eq $destName .Cluster.metadata.name) }}
+{{- fail (printf "GatewayRoute %s/%s: status back-fill would target its own host %s/%s instead of the source vCluster" .Resource.metadata.namespace .Resource.metadata.name $destNamespace $destName) }}
+{{- end }}
 apiVersion: kro.run/v1alpha1
 kind: GatewayRoute
 metadata:
