@@ -2,15 +2,18 @@
 {{- $annotations := .Cluster.metadata.annotations }}
 {{- $vcluster := index $annotations "bootstrap.projectsveltos.io/vcluster-name" }}
 {{- $namespace := .Resource.metadata.namespace }}
-{{- /* vCluster's single-namespace host name (SafeConcatName), so names match the synced Services. */ -}}
-{{- $names := dict }}
-{{- range $key, $name := dict "route" .Resource.spec.name "service" .Resource.spec.serviceName }}
-{{- $full := printf "%s-x-%s-x-%s" $name $namespace $vcluster }}
-{{- if gt (len $full) 63 }}
-{{- $full = replace ".-" "-" (printf "%s-%s" (trunc 52 $full) (trunc 10 (sha256sum $full))) }}
+{{- /* serviceName becomes vCluster's single-namespace host name (SafeConcatName) of the synced Service. */ -}}
+{{- $service := printf "%s-x-%s-x-%s" .Resource.spec.serviceName $namespace $vcluster }}
+{{- if gt (len $service) 63 }}
+{{- $service = replace ".-" "-" (printf "%s-%s" (trunc 52 $service) (trunc 10 (sha256sum $service))) }}
 {{- end }}
-{{- $_ := set $names $key $full }}
+{{- /* The route must not use vCluster's naming: vCluster would claim kro's HTTPRoute as a synced
+copy and delete it. kro suffixes it (-tls, -https-redirect), so it stays well under 63. */ -}}
+{{- $route := printf "%s-%s-%s" $vcluster $namespace .Resource.spec.name }}
+{{- if gt (len $route) 45 }}
+{{- $route = printf "%s-%s" (trunc 34 $route | trimSuffix "-") (trunc 10 (sha256sum $route)) }}
 {{- end }}
+{{- $names := dict "route" $route "service" $service }}
 {{- $spec := deepCopy .Resource.spec }}
 {{- $_ := set $spec "name" $names.route }}
 {{- $_ := set $spec "serviceName" $names.service }}
