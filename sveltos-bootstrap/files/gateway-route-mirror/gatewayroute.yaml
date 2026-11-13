@@ -1,0 +1,23 @@
+{{- /* Rendered by the event-manager: .Cluster is the virtual cluster, .Resource its GatewayRoute. */ -}}
+{{- $annotations := .Cluster.metadata.annotations }}
+{{- $vcluster := index $annotations "bootstrap.projectsveltos.io/vcluster-name" }}
+{{- $namespace := .Resource.metadata.namespace }}
+{{- /* vCluster's single-namespace host name (SafeConcatName), so names match the synced Services. */ -}}
+{{- $names := dict }}
+{{- range $key, $name := dict "route" .Resource.spec.name "service" .Resource.spec.serviceName }}
+{{- $full := printf "%s-x-%s-x-%s" $name $namespace $vcluster }}
+{{- if gt (len $full) 63 }}
+{{- $full = replace ".-" "-" (printf "%s-%s" (trunc 52 $full) (trunc 10 (sha256sum $full))) }}
+{{- end }}
+{{- $_ := set $names $key $full }}
+{{- end }}
+{{- $spec := deepCopy .Resource.spec }}
+{{- $_ := set $spec "name" $names.route }}
+{{- $_ := set $spec "serviceName" $names.service }}
+apiVersion: kro.run/v1alpha1
+kind: GatewayRoute
+metadata:
+  name: {{ $names.route | quote }}
+  namespace: {{ index $annotations "bootstrap.projectsveltos.io/host-namespace" | quote }}
+spec:
+  {{- toYaml $spec | nindent 2 }}

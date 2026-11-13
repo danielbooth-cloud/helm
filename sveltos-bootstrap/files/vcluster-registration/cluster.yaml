@@ -36,6 +36,11 @@ metadata:
   annotations:
     bootstrap.projectsveltos.io/argocd-server: {{ $server | quote }}
     bootstrap.projectsveltos.io/dns-owner: {{ $name | quote }}
+    # Where its GatewayRoutes are mirrored: the host's SveltosCluster and the vCluster's host namespace.
+    bootstrap.projectsveltos.io/host-cluster-namespace: {{ .Cluster.metadata.namespace | quote }}
+    bootstrap.projectsveltos.io/host-cluster-name: {{ .Cluster.metadata.name | quote }}
+    bootstrap.projectsveltos.io/host-namespace: {{ $namespace | quote }}
+    bootstrap.projectsveltos.io/vcluster-name: {{ $capiCluster | quote }}
 spec:
   kubeconfigName: {{ printf "%s%s" $name $config.kubeconfigSecretSuffix | quote }}
   kubeconfigKeyName: kubeconfig

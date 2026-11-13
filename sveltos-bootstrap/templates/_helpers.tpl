@@ -8,6 +8,9 @@ matchLabels:
   {{- if .clustermesh }}
   bootstrap.projectsveltos.io/clustermesh: "true"
   {{- end }}
+  {{- if .virtualOnly }}
+  bootstrap.projectsveltos.io/virtual: "true"
+  {{- end }}
 matchExpressions:
   - key: bootstrap.projectsveltos.io/cluster
     operator: Exists
