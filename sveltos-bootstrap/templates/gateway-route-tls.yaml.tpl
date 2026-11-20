@@ -16,6 +16,9 @@ spec:
         - key: bootstrap.projectsveltos.io/gateway-route-mirror
           operation: Equal
           value: "true"
+        # Cilium's Gateway copies listener Secrets with their labels into cilium-secrets.
+        - key: secretsync.cilium.io/owning-secret-name
+          operation: DoesNotHave
 ---
 apiVersion: lib.projectsveltos.io/v1beta1
 kind: EventTrigger
