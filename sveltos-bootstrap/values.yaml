@@ -1371,6 +1371,15 @@ applicationValues:
                     kind: ClusterIssuer
                     name: {{ (getResource "BootstrapSettings").data.issuerName | quote }}
                   secretName: ${schema.spec.?name.orValue(schema.metadata.name)}-tls
+                  # A mirror's Secret carries its source vCluster route, so gateway-route-tls copies it back.
+                  secretTemplate:
+                    labels:
+                      bootstrap.projectsveltos.io/gateway-route-mirror: ${schema.metadata.?labels[?"bootstrap.projectsveltos.io/gateway-route-mirror"].orValue("false")}
+                    annotations:
+                      bootstrap.projectsveltos.io/mirror-source-namespace: ${schema.metadata.?annotations[?"bootstrap.projectsveltos.io/mirror-source-namespace"].orValue("")}
+                      bootstrap.projectsveltos.io/mirror-source-name: ${schema.metadata.?annotations[?"bootstrap.projectsveltos.io/mirror-source-name"].orValue("")}
+                      bootstrap.projectsveltos.io/route-namespace: ${schema.metadata.?annotations[?"bootstrap.projectsveltos.io/route-namespace"].orValue("")}
+                      bootstrap.projectsveltos.io/route-tls-secret: ${schema.metadata.?annotations[?"bootstrap.projectsveltos.io/route-tls-secret"].orValue("")}
             - id: listenerSetTLS
               includeWhen:
                 - ${schema.spec.gateway == "tailscale"}

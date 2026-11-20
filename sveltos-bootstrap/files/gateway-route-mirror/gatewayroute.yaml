@@ -36,5 +36,7 @@ metadata:
     bootstrap.projectsveltos.io/route-name: {{ .Resource.metadata.name | quote }}
     bootstrap.projectsveltos.io/route-namespace: {{ $namespace | quote }}
     bootstrap.projectsveltos.io/route-spec: {{ toYaml (deepCopy .Resource.spec) | quote }}
+    # The certificate Secret's name in the vCluster, the RGD's <name>-tls convention (gateway-route-tls).
+    bootstrap.projectsveltos.io/route-tls-secret: {{ printf "%s-tls" $routeName | quote }}
 spec:
   {{- toYaml $spec | nindent 2 }}
